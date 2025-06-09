@@ -39,7 +39,7 @@ void loop() {
         digitalWrite(HEATER_CONTROL_PIN, HIGH);
         heaterEnabled = true;
         Serial.println("ACK:ON");
-      } else {
+      } else if (heaterTemp > SAFETY_MAX_TEMP) {
         Serial.println("NACK:ON");
       }
     } else if (cmd == "CMD:OFF") {
