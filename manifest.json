@@ -1,0 +1,19 @@
+{
+  "name": "HotTubHub",
+  "short_name": "HotTubHub",
+  "description": "Control your hot tub temperature",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1a1a1a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon-400x400.jpg",
+      "sizes": "400x400",
+      "type": "image/jpg",
+      "purpose": "any maskable"
+    }
+  ],
+  "prefer_related_applications": false
+}
