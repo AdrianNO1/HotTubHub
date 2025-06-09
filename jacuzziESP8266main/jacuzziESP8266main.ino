@@ -33,7 +33,7 @@ const float MAX_TEMP = 50.0;
 
 const int TARGET_TEMP_ADDR = 0;
 
-const unsigned long heaterMinSwitchTime = 1;
+const unsigned long heaterMinSwitchTime = 30;
 unsigned long heaterSwitchTime = 0;
 unsigned long lastHeaterSwitch = 0;
 unsigned long lastTargetUpdateTimestamp = 0;
@@ -59,6 +59,8 @@ int bubbleRetryCount = 0;
 const int BUBBLE_RETRY_LIMIT = 10;
 int heaterRetryCount = 0;
 const int HEATER_RETRY_LIMIT = 10;
+unsigned long mqttNackErrorTime = 0;
+const unsigned long mqttErrorCooldown = 2000;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -213,7 +215,7 @@ void loop() {
   controlHeater();
   
   static unsigned long lastTempUpdate = 0;
-  if (millis() - lastTempUpdate >= 1000) {
+  if (millis() - lastTempUpdate >= 5000) {
     if (millis() - lastSerialRead > serialTimeout) {
       sendError("ESP not receiving data from Arduino");
     }
@@ -418,11 +420,21 @@ void readSerialData() {
       waitingForBubblesAck = false;
       bubbleRetryCount = 0;
     } else if (line == "NACK:ON" || line == "NACK:OFF") {
-      sendError("Uno NACK for heater command: " + line);
+      if (millis() - mqttNackErrorTime > mqttErrorCooldown) {
+        if (line == "NACK:ON") {
+          sendError("SAFETY SHUTOFF ENGAGED. HEATER TOO HOT!!!");
+        } else {
+          sendError("Uno NACK for heater command: " + line);
+        }
+        mqttNackErrorTime = millis();
+      }
       waitingForAck = false;
       heaterRetryCount = 0;
     } else if (line == "NACK:BUBBLES_ON" || line == "NACK:BUBBLES_OFF") {
-      sendError("Uno NACK for bubbles command: " + line);
+      if (millis() - mqttNackErrorTime > mqttErrorCooldown) {
+        sendError("Uno NACK for bubbles command: " + line);
+        mqttNackErrorTime = millis();
+      }
       waitingForBubblesAck = false;
     } else if (line == "SAFETY:OFF") {
       if (heaterEnabled) {
