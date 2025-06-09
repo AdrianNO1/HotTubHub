@@ -1,0 +1,1138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon-400x400.jpg">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>HotTubHub</title>
+    <style>
+        html, body {
+            overscroll-behavior-y: none;
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            -webkit-overflow-scrolling: none;
+        }
+
+        :root {
+            /* Hot Theme (40°C) */
+            --bg-color-hot: #1a1616;
+            --gradient-start-hot: #2a1f1f;
+            --gradient-end-hot: #382626;
+            --accent-color-hot: #FF6B4A;
+            --accent-glow-hot: rgba(255, 107, 74, 0.3);
+            --btn-bg-hot: rgba(255, 107, 74, 0.1);
+            --btn-bg-hover-hot: rgba(255, 107, 74, 0.2);
+
+            /* Cold Theme (35°C) */
+            --bg-color-cold: #1a1a1a;
+            --gradient-start-cold: #222;
+            --gradient-end-cold: #333;
+            --accent-color-cold: #4FACFE;
+            --accent-glow-cold: rgba(79, 172, 254, 0.3);
+            --btn-bg-cold: rgba(79, 172, 254, 0.1);
+            --btn-bg-hover-cold: rgba(79, 172, 254, 0.2);
+
+            /* Initial theme (to prevent flash) */
+            --bg-color: var(--bg-color-cold);
+            --gradient-start: var(--gradient-start-cold);
+            --gradient-end: var(--gradient-end-cold);
+            --accent-color: var(--accent-color-cold);
+            --accent-glow: var(--accent-glow-cold);
+            --btn-bg: var(--btn-bg-cold);
+            --btn-bg-hover: var(--btn-bg-hover-cold);
+        }
+
+        body {
+            font-family: 'SF Pro Display', 'Arial', sans-serif;
+            margin: 0;
+            background-color: var(--bg-color);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: none;
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+        }
+
+
+        body.theme-ready {
+            transition: background-color 2s;
+        }
+
+        .container {
+            width: 320px;
+            aspect-ratio: 1;
+            background: linear-gradient(145deg, var(--gradient-start), var(--gradient-end));
+            border-radius: 50%;
+            padding: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3),
+                        inset 0 2px 5px rgba(255,255,255,0.1);
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: none;
+        }
+
+        body.theme-ready .container {
+            transition: background 2s;
+        }
+
+        .temperature-display {
+            text-align: center;
+            position: relative;
+            width: 100%;
+        }
+
+        .current-temp {
+            font-size: 5em;
+            font-weight: 300;
+            color: var(--accent-color);
+            margin: 0;
+            line-height: 1;
+            text-shadow: 0 0 20px var(--accent-glow);
+            transition: none;
+        }
+
+        body.theme-ready .current-temp {
+            transition: color 2s, text-shadow 2s;
+        }
+
+        .target-temp {
+            font-size: 1.2em;
+            color: #888;
+            margin: 5px 0;
+        }
+
+        .controls {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+        }
+
+        .temp-btn {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            border: none;
+            background: var(--btn-bg);
+            color: var(--accent-color);
+            font-size: 28px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            margin-top: 70px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        #increase {
+            right: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        #decrease {
+            left: 30px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .temp-btn:hover {
+            background: var(--btn-bg-hover);
+            transform: translateY(-50%) scale(1.1);
+        }
+
+        .bubble-btn {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px;
+            height: 35px;
+            border-radius: 20px;
+            border: none;
+            background: var(--btn-bg);
+            color: var(--accent-color);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            -webkit-tap-highlight-color: transparent;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .bubble-btn:hover {
+            background: var(--btn-bg-hover);
+            transform: translateX(-50%) scale(1.05);
+        }
+
+        .bubble-btn.enabled {
+            background: var(--accent-color);
+            color: var(--bg-color);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+
+        .bubble-btn.enabled:hover {
+            background: var(--accent-color);
+            filter: brightness(1.1);
+        }
+
+        .status {
+            position: absolute;
+            bottom: 30px;
+            text-align: center;
+            color: #888;
+            font-size: 0.9em;
+            width: 100%;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 5px;
+        }
+
+        .connected { background: #4CAF50; box-shadow: 0 0 10px #4CAF50; }
+        .disconnected { background: #F44336; box-shadow: 0 0 10px #F44336; }
+        .connecting { background: #FFC107; box-shadow: 0 0 10px #FFC107; }
+
+        .error-message {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(244, 67, 54, 0.95);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 0.9em;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            z-index: 100;
+            white-space: nowrap;
+            box-shadow: 0 4px 15px rgba(244, 67, 54, 0.3);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+            margin-top: 42px;
+        }
+
+        .error-message.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateX(-50%) translateY(0); }
+            to { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+        }
+
+        .error-message.fade-in {
+            animation: fadeIn 0.3s ease forwards;
+        }
+
+        .error-message.fade-out {
+            animation: fadeOut 0.3s ease forwards;
+        }
+
+        .sunset-info {
+            position: absolute;
+            top: 20px;
+            text-align: center;
+            color: #888;
+            font-size: 0.9em;
+            width: 100%;
+        }
+
+        /* .sunset-info span {
+            color: var(--accent-color);
+            text-shadow: 0 0 10px var(--accent-glow);
+        } */
+
+        .pregnancy-warning {
+            position: absolute;
+            bottom: 55px;
+            text-align: center;
+            color: #FF6B4A;
+            font-size: 0.9em;
+            width: 100%;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+
+        .pregnancy-warning.visible {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .settings-button {
+            position: absolute;
+            top: calc((50% - 180px - 80px)/2); /* (50% - half of container height - settingsbutton height) / 2*/
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 80px;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            z-index: 100;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .settings-menu {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: var(--gradient-start);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            z-index: 1000;
+            display: none;
+            width: 80%;
+            max-width: 300px;
+        }
+
+        .settings-menu.visible {
+            display: block;
+        }
+
+        .settings-menu input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            background: var(--gradient-end);
+            color: white;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        .settings-menu button {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 5px;
+            background: var(--btn-bg);
+            color: var(--accent-color);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .settings-menu button:hover {
+            background: var(--btn-bg-hover);
+        }
+
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 999;
+            display: none;
+        }
+
+        .overlay.visible {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="overlay" id="overlay"></div>
+    <button class="settings-button" id="settingsButton"></button>
+    <div class="settings-menu" id="settingsMenu">
+        <input type="text" id="secretKeyInput" placeholder="Enter Secret Key">
+        <input type="number" id="targetTempStep" placeholder="Target Temp Step" step="0.1" min="0.1" max="10">
+        <button id="saveSettings">Save</button>
+        <button id="cancelSettings">Cancel</button>
+        <div class="heater-temp">Heater: --°C</div>
+    </div>
+    <div class="container">
+        <div class="sunset-info">
+            Sunset: <span id="sunsetTime">--:--</span>
+        </div>
+        <div class="temperature-display">
+            <div class="current-temp">--°C</div>
+            <div class="target-temp">Target: --°C</div>
+        </div>
+        <div class="error-message" id="errorMessage"></div>
+        <div class="controls">
+            <button class="temp-btn" id="decrease">-</button>
+            <button class="temp-btn" id="increase">+</button>
+            <button class="bubble-btn" id="bubbleBtn">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24px" height="24px" viewBox="0 0 24 24" fill="none">
+                    <path d="M15.5259 12.9141C18.3031 12.9141 20.5545 10.6627 20.5545 7.88551C20.5545 5.1083 18.3031 2.85693 15.5259 2.85693C12.7487 2.85693 10.4973 5.1083 10.4973 7.88551C10.4973 10.6627 12.7487 12.9141 15.5259 12.9141Z" fill="url(#paint0_linear)"/>
+                    <path d="M15.5259 12.9141C18.3031 12.9141 20.5545 10.6627 20.5545 7.88551C20.5545 5.1083 18.3031 2.85693 15.5259 2.85693C12.7487 2.85693 10.4973 5.1083 10.4973 7.88551C10.4973 10.6627 12.7487 12.9141 15.5259 12.9141Z" fill="url(#paint1_radial)"/>
+                    <path d="M15.5259 12.9141C18.3031 12.9141 20.5545 10.6627 20.5545 7.88551C20.5545 5.1083 18.3031 2.85693 15.5259 2.85693C12.7487 2.85693 10.4973 5.1083 10.4973 7.88551C10.4973 10.6627 12.7487 12.9141 15.5259 12.9141Z" fill="url(#paint2_radial)"/>
+                    <path d="M16.6116 3.91961C17.1773 4.78247 16.4916 6.2339 15.0802 7.1539C13.6688 8.0739 12.0688 8.13104 11.503 7.26819C10.9373 6.40533 11.623 4.9539 13.0345 4.0339C14.4459 3.1139 16.0459 3.05676 16.6116 3.91961Z" fill="url(#paint3_radial)"/>
+                    <path d="M15.5259 12.9141C18.3031 12.9141 20.5545 10.6627 20.5545 7.88551C20.5545 5.1083 18.3031 2.85693 15.5259 2.85693C12.7487 2.85693 10.4973 5.1083 10.4973 7.88551C10.4973 10.6627 12.7487 12.9141 15.5259 12.9141Z" fill="url(#paint4_radial)"/>
+                    <path d="M13.9146 10.5372C12.6746 9.88003 10.8517 7.83431 11.3374 5.09717C10.806 5.89717 10.4917 6.85145 10.4917 7.88574C10.4917 10.6629 12.7431 12.9143 15.5203 12.9143C16.766 12.9143 17.9088 12.4572 18.7888 11.7086C17.126 10.5429 16.2003 11.7543 13.9146 10.5372Z" fill="url(#paint5_linear)"/>
+                    <path d="M15.6858 2.86279C15.7601 2.86851 15.8286 2.87994 15.9029 2.89708C16.0229 2.93136 16.1429 2.98279 16.2572 3.04565C16.4801 3.17708 16.6686 3.35422 16.8401 3.54851C17.1715 3.94279 17.4058 4.40565 17.5829 4.88565C17.6744 5.12565 17.7486 5.37136 17.8115 5.61708C17.8744 5.86279 17.9258 6.11422 17.9658 6.36565C18.0058 6.61708 18.0344 6.86851 18.0572 7.12565C18.0744 7.37708 18.0858 7.63422 18.0858 7.89136C18.0858 8.1485 18.0744 8.39993 18.0572 8.65708C18.0344 8.9085 18.0115 9.16565 17.9658 9.41708C17.9258 9.6685 17.8744 9.91993 17.8115 10.1656C17.7486 10.4114 17.6744 10.6571 17.5829 10.8971C17.4058 11.3714 17.1658 11.8342 16.8401 12.2342C16.6744 12.4285 16.4801 12.6056 16.2572 12.7371C16.1486 12.7999 16.0286 12.8514 15.9029 12.8856C15.8344 12.9028 15.7601 12.9142 15.6915 12.9199C17.5086 12.7942 18.9544 10.5942 18.9544 7.89708C18.9544 5.18851 17.5029 2.98851 15.6858 2.86279Z" fill="url(#paint6_radial)"/>
+                    <path d="M6.97157 16.7483C8.92824 16.7483 10.5144 15.1621 10.5144 13.2055C10.5144 11.2488 8.92824 9.6626 6.97157 9.6626C5.0149 9.6626 3.42871 11.2488 3.42871 13.2055C3.42871 15.1621 5.0149 16.7483 6.97157 16.7483Z" fill="url(#paint7_linear)"/>
+                    <path d="M6.97157 16.7483C8.92824 16.7483 10.5144 15.1621 10.5144 13.2055C10.5144 11.2488 8.92824 9.6626 6.97157 9.6626C5.0149 9.6626 3.42871 11.2488 3.42871 13.2055C3.42871 15.1621 5.0149 16.7483 6.97157 16.7483Z" fill="url(#paint8_radial)"/>
+                    <path d="M6.97157 16.7483C8.92824 16.7483 10.5144 15.1621 10.5144 13.2055C10.5144 11.2488 8.92824 9.6626 6.97157 9.6626C5.0149 9.6626 3.42871 11.2488 3.42871 13.2055C3.42871 15.1621 5.0149 16.7483 6.97157 16.7483Z" fill="url(#paint9_radial)"/>
+                    <path d="M7.73724 10.4168C8.13725 11.0225 7.65153 12.0454 6.65724 12.6968C5.66296 13.3482 4.53153 13.3825 4.13724 12.7768C3.73724 12.1711 4.22296 11.1482 5.21724 10.4968C6.21153 9.84535 7.33724 9.81106 7.73724 10.4168Z" fill="url(#paint10_radial)"/>
+                    <path d="M6.97157 16.7483C8.92824 16.7483 10.5144 15.1621 10.5144 13.2055C10.5144 11.2488 8.92824 9.6626 6.97157 9.6626C5.0149 9.6626 3.42871 11.2488 3.42871 13.2055C3.42871 15.1621 5.0149 16.7483 6.97157 16.7483Z" fill="url(#paint11_radial)"/>
+                    <path d="M5.83443 15.074C4.96014 14.6112 3.68014 13.1712 4.023 11.2397C3.64585 11.8055 3.42871 12.4797 3.42871 13.2055C3.42871 15.1597 5.01728 16.7483 6.97157 16.7483C7.85157 16.7483 8.65728 16.4283 9.27443 15.8969C8.103 15.0797 7.44585 15.9312 5.83443 15.074Z" fill="url(#paint12_linear)"/>
+                    <path d="M7.08594 9.66846C7.13737 9.67417 7.18879 9.67989 7.23451 9.69131C7.32022 9.71417 7.40594 9.75417 7.48022 9.79417C7.63451 9.8856 7.77165 10.0113 7.89165 10.1485C8.12594 10.4285 8.29165 10.7542 8.41737 11.0913C8.48023 11.257 8.53737 11.4342 8.57737 11.6056C8.62308 11.777 8.65737 11.9542 8.68594 12.1313C8.71451 12.3085 8.73165 12.4856 8.7488 12.6685C8.76023 12.8456 8.76594 13.0285 8.77165 13.2056C8.77165 13.3827 8.76594 13.5656 8.7488 13.7427C8.73165 13.9199 8.71451 14.1027 8.68594 14.2799C8.65737 14.457 8.61737 14.6342 8.57737 14.8056C8.53165 14.9827 8.48023 15.1542 8.41737 15.3199C8.29165 15.657 8.12594 15.9827 7.89165 16.2627C7.77165 16.3999 7.64022 16.5256 7.48022 16.617C7.40022 16.6627 7.32022 16.697 7.23451 16.7199C7.18308 16.7313 7.13737 16.7427 7.08594 16.7427C8.36594 16.6513 9.3888 15.1027 9.3888 13.2056C9.3888 11.3085 8.36594 9.75989 7.08594 9.66846Z" fill="url(#paint13_radial)"/>
+                    <path d="M15.4287 21.1425C17.0066 21.1425 18.2858 19.8633 18.2858 18.2854C18.2858 16.7074 17.0066 15.4282 15.4287 15.4282C13.8507 15.4282 12.5715 16.7074 12.5715 18.2854C12.5715 19.8633 13.8507 21.1425 15.4287 21.1425Z" fill="url(#paint14_linear)"/>
+                    <path d="M15.4287 21.1425C17.0066 21.1425 18.2858 19.8633 18.2858 18.2854C18.2858 16.7074 17.0066 15.4282 15.4287 15.4282C13.8507 15.4282 12.5715 16.7074 12.5715 18.2854C12.5715 19.8633 13.8507 21.1425 15.4287 21.1425Z" fill="url(#paint15_radial)"/>
+                    <path d="M15.4287 21.1425C17.0066 21.1425 18.2858 19.8633 18.2858 18.2854C18.2858 16.7074 17.0066 15.4282 15.4287 15.4282C13.8507 15.4282 12.5715 16.7074 12.5715 18.2854C12.5715 19.8633 13.8507 21.1425 15.4287 21.1425Z" fill="url(#paint16_radial)"/>
+                    <path d="M16.0459 16.0339C16.3659 16.5253 15.9774 17.3482 15.1774 17.8739C14.3774 18.3996 13.4631 18.4282 13.1431 17.9367C12.8231 17.4453 13.2117 16.6224 14.0117 16.0967C14.8116 15.571 15.7259 15.5424 16.0459 16.0339Z" fill="url(#paint17_radial)"/>
+                    <path d="M15.4287 21.1425C17.0066 21.1425 18.2858 19.8633 18.2858 18.2854C18.2858 16.7074 17.0066 15.4282 15.4287 15.4282C13.8507 15.4282 12.5715 16.7074 12.5715 18.2854C12.5715 19.8633 13.8507 21.1425 15.4287 21.1425Z" fill="url(#paint18_radial)"/>
+                    <path d="M14.5144 19.7941C13.8115 19.4226 12.7772 18.2569 13.0515 16.7026C12.7487 17.1541 12.5715 17.7026 12.5715 18.2855C12.5715 19.8626 13.8515 21.1426 15.4287 21.1426C16.1373 21.1426 16.7887 20.8855 17.2858 20.4569C16.3373 19.7941 15.8115 20.4855 14.5144 19.7941Z" fill="url(#paint19_linear)"/>
+                    <path d="M15.52 15.4341C15.56 15.4398 15.6 15.4455 15.64 15.4569C15.7086 15.4798 15.7772 15.5084 15.84 15.5427C15.9657 15.6169 16.0743 15.7198 16.1714 15.8284C16.36 16.0512 16.4914 16.3141 16.5943 16.5884C16.6457 16.7255 16.6914 16.8627 16.7257 17.0055C16.76 17.1484 16.7886 17.2855 16.8114 17.4284C16.8343 17.5712 16.8514 17.7141 16.8629 17.8569C16.8743 17.9998 16.88 18.1484 16.88 18.2912C16.88 18.4341 16.8743 18.5827 16.8629 18.7255C16.8514 18.8684 16.8343 19.0112 16.8114 19.1541C16.7886 19.2969 16.76 19.4398 16.7257 19.5769C16.6914 19.7198 16.6457 19.8569 16.5943 19.9941C16.4914 20.2627 16.36 20.5255 16.1714 20.7541C16.0743 20.8627 15.9657 20.9655 15.84 21.0398C15.7772 21.0741 15.7086 21.1027 15.64 21.1255C15.6 21.1369 15.56 21.1427 15.52 21.1484C16.5543 21.0741 17.3772 19.8284 17.3772 18.2969C17.3772 16.7541 16.5543 15.5027 15.52 15.4341Z" fill="url(#paint20_radial)"/>
+                    <defs>
+                    <linearGradient id="paint0_linear" x1="11.0518" y1="0.827464" x2="29.1333" y2="29.3637" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#80DAFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#008EE6"/>
+                    </linearGradient>
+                    <radialGradient id="paint1_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(14.1498 3.5623) scale(11.7727)">
+                    <stop offset="0.5839" stop-color="#FB9DC1" stop-opacity="0"/>
+                    <stop offset="0.6244" stop-color="#F59EC3" stop-opacity="0.0730316"/>
+                    <stop offset="0.6809" stop-color="#E2A0C8" stop-opacity="0.1749"/>
+                    <stop offset="0.7469" stop-color="#C5A4D0" stop-opacity="0.2938"/>
+                    <stop offset="0.82" stop-color="#9BAADB" stop-opacity="0.4256"/>
+                    <stop offset="0.899" stop-color="#66B1E9" stop-opacity="0.568"/>
+                    <stop offset="0.9818" stop-color="#26B9FA" stop-opacity="0.7172"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint2_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16.5347 7.96713) scale(13.0729)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint3_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(14.0581 5.59451) rotate(-33.2503) scale(2.53204 1.6835)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="paint4_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16.5347 7.96713) scale(13.0729)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <linearGradient id="paint5_linear" x1="15.7656" y1="6.53475" x2="11.4918" y2="17.0814" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#17BBFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </linearGradient>
+                    <radialGradient id="paint6_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(18.0047 5.37093) rotate(-1.44239) scale(3.73411 1.5635)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    <linearGradient id="paint7_linear" x1="3.82045" y1="8.23605" x2="16.5597" y2="28.3411" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#80DAFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#008EE6"/>
+                    </linearGradient>
+                    <radialGradient id="paint8_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(6.00323 10.1628) scale(8.29441)">
+                    <stop offset="0.5839" stop-color="#FB9DC1" stop-opacity="0"/>
+                    <stop offset="0.6244" stop-color="#F59EC3" stop-opacity="0.0730316"/>
+                    <stop offset="0.6809" stop-color="#E2A0C8" stop-opacity="0.1749"/>
+                    <stop offset="0.7469" stop-color="#C5A4D0" stop-opacity="0.2938"/>
+                    <stop offset="0.82" stop-color="#9BAADB" stop-opacity="0.4256"/>
+                    <stop offset="0.899" stop-color="#66B1E9" stop-opacity="0.568"/>
+                    <stop offset="0.9818" stop-color="#26B9FA" stop-opacity="0.7172"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint9_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(7.68353 13.2662) scale(9.21043)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint10_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(5.93871 11.5944) rotate(-33.2504) scale(1.78394 1.18611)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="paint11_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(7.68353 13.2662) scale(9.21043)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <linearGradient id="paint12_linear" x1="7.14148" y1="12.2569" x2="4.13038" y2="19.6875" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#17BBFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </linearGradient>
+                    <radialGradient id="paint13_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(8.71929 11.4375) rotate(-1.44239) scale(2.63085 1.10156)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    <linearGradient id="paint14_linear" x1="12.8858" y1="14.2762" x2="23.1594" y2="30.4899" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#80DAFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#008EE6"/>
+                    </linearGradient>
+                    <radialGradient id="paint15_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(14.646 15.8304) scale(6.68912)">
+                    <stop offset="0.5839" stop-color="#FB9DC1" stop-opacity="0"/>
+                    <stop offset="0.6244" stop-color="#F59EC3" stop-opacity="0.0730316"/>
+                    <stop offset="0.6809" stop-color="#E2A0C8" stop-opacity="0.1749"/>
+                    <stop offset="0.7469" stop-color="#C5A4D0" stop-opacity="0.2938"/>
+                    <stop offset="0.82" stop-color="#9BAADB" stop-opacity="0.4256"/>
+                    <stop offset="0.899" stop-color="#66B1E9" stop-opacity="0.568"/>
+                    <stop offset="0.9818" stop-color="#26B9FA" stop-opacity="0.7172"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint16_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16.0011 18.3332) scale(7.42785)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <radialGradient id="paint17_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(14.6012 16.993) rotate(-33.2462) scale(1.43861 0.956444)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    <radialGradient id="paint18_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16.0011 18.3332) scale(7.42785)">
+                    <stop stop-color="#D1F2FF" stop-opacity="0"/>
+                    <stop offset="0.1913" stop-color="#CBF0FF" stop-opacity="0.1435"/>
+                    <stop offset="0.458" stop-color="#B8EBFF" stop-opacity="0.3435"/>
+                    <stop offset="0.7676" stop-color="#9BE2FE" stop-opacity="0.5757"/>
+                    <stop offset="1" stop-color="#80DAFE" stop-opacity="0.75"/>
+                    </radialGradient>
+                    <linearGradient id="paint19_linear" x1="15.564" y1="17.5189" x2="13.1357" y2="23.5114" gradientUnits="userSpaceOnUse">
+                    <stop stop-color="#17BBFE" stop-opacity="0"/>
+                    <stop offset="1" stop-color="#17BBFE" stop-opacity="0.75"/>
+                    </linearGradient>
+                    <radialGradient id="paint20_radial" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(16.8353 16.855) rotate(-1.44248) scale(2.12153 0.888355)">
+                    <stop stop-color="white"/>
+                    <stop offset="1" stop-color="white" stop-opacity="0"/>
+                    </radialGradient>
+                    </defs>
+                    </svg>
+                <span id="bubbleText">OFF</span>
+            </button>
+        </div>
+        <div class="pregnancy-warning">
+            ⚠️ Not safe for pregnant women
+        </div>
+        <div class="status">
+            <span class="status-indicator connecting" id="connectionStatus"></span>
+            <span id="statusText">Connecting...</span>
+        </div>
+    </div>
+</body>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+<script>
+    document.addEventListener('touchmove', (e) => {
+        e.preventDefault();
+    }, { passive: false });
+    
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('service-worker.js')
+                .then(registration => {
+                    console.log('ServiceWorker registration successful');
+                })
+                .catch(err => {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+        });
+    }
+    const CONFIG = {
+        deviceId: 'jcz_001',  // Unique device identifier
+        secretKey: '',  // Secret key for encryption
+        topicPrefix: 'secure_jacuzzi/jcz_001/'  // Unique topic prefix
+    };
+
+    const storedKey = localStorage.getItem('jacuzziSecretKey');
+    if (storedKey) {
+        CONFIG.secretKey = storedKey;
+    }
+
+    const TOPICS = {
+        temperature: CONFIG.topicPrefix + 'temperature',
+        targetTemp: CONFIG.topicPrefix + 'target_temperature',
+        status: CONFIG.topicPrefix + 'status',
+        initialRequest: CONFIG.topicPrefix + 'initial_request'
+    };
+
+    const MIN_TEMP = 0;
+    const MAX_TEMP = 50;
+
+    const COLD_TEMP = 35;
+    const HOT_TEMP = 40;
+
+    let targetTempStep = localStorage.getItem('jacuzziTargetTempStep') || 0.5;
+    targetTempStep = parseFloat(targetTempStep);
+    if (isNaN(targetTempStep)) {
+        targetTempStep = 0.5;
+    }
+    if (targetTempStep < 0.1) {
+        targetTempStep = 0.1;
+    }
+    targetTempStep = parseFloat(targetTempStep.toFixed(1));
+
+    const invalidTemperatures = ["-127.0", "85.0"];
+
+    let currentTemp = "--";
+    let targetTemp = "--";
+    let currentHeaterTemp = "--";
+    let isHeating = null;
+    let errorMessageTimeout = null;
+    let lastTempUpdate = Date.now();
+    let tempUpdateChecker = null;
+    let targetTempTimeout = null;
+    let targetTempTimeoutCreatedAt = null;
+    let lastRecievedTargetTemp = "--";
+    let isConnected = false
+    let prevButtonPresses = [];
+    let pregnancyWarningEnabled = false
+    let bubblesEnabled = false;
+    let lastRecievedBubblesEnabled = false;
+
+    const storedPWE = localStorage.getItem('pregnancyWarningEnabled');
+    if (storedPWE) {
+        pregnancyWarningEnabled = storedPWE === 'true';
+    } else {
+        localStorage.setItem('pregnancyWarningEnabled', pregnancyWarningEnabled);
+    }
+
+    async function encryptMessage(message) {
+        if (!CONFIG.secretKey) {
+            throw new Error('Secret key not set');
+            showError('Secret key not set');
+        }
+        if (CONFIG.secretKey.length !== 16) {
+            throw new Error('Secret key must be 16 characters');
+            showError('Secret key must be 16 characters');
+        }
+        const jsonString = JSON.stringify(message);
+
+        const encoder = new TextEncoder();
+        const key = encoder.encode(CONFIG.secretKey);
+        const iv = crypto.getRandomValues(new Uint8Array(16));
+        const data = encoder.encode(jsonString);
+
+        const cryptoKey = await crypto.subtle.importKey('raw', key, 'AES-CBC', false, ['encrypt']);
+        const encrypted = await crypto.subtle.encrypt({name: 'AES-CBC', iv}, cryptoKey, data);
+
+        const encryptedBase64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+        const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
+
+        return JSON.stringify({
+            iv: ivHex,
+            ciphertext: encryptedBase64
+        });
+    }
+
+    function hexToBytes(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        return bytes;
+    }
+
+    function stringToBytes(str) {
+        const encoder = new TextEncoder();
+        return encoder.encode(str);
+    }
+
+    function bytesToString(bytes) {
+        const decoder = new TextDecoder();
+        return decoder.decode(bytes);
+    }
+
+    async function decryptMessage(encryptedData) {
+        const parsedData = JSON.parse(encryptedData);
+        if (!parsedData.iv || !parsedData.ciphertext) {
+            throw new Error('Invalid message format');
+        }
+
+        const keyBytes = stringToBytes(CONFIG.secretKey);
+        const ivBytes = hexToBytes(parsedData.iv);
+        
+        const encryptedBytes = Uint8Array.from(atob(parsedData.ciphertext), c => c.charCodeAt(0));
+
+        const cryptoKey = await crypto.subtle.importKey(
+            'raw',
+            keyBytes,
+            { name: 'AES-CBC' },
+            false,
+            ['decrypt']
+        );
+
+        const decryptedBuffer = await crypto.subtle.decrypt(
+            {
+                name: 'AES-CBC',
+                iv: ivBytes
+            },
+            cryptoKey,
+            encryptedBytes
+        );
+
+        const decryptedText = bytesToString(new Uint8Array(decryptedBuffer));
+        try {
+            return JSON.parse(decryptedText);
+        } catch (error) {
+            throw new Error('Failed to decrypt message');
+        }
+    }
+
+    const client = mqtt.connect('wss://test.mosquitto.org:8081', {
+        protocol: 'wss',
+        protocolVersion: 4,
+        clean: true,
+        reconnectPeriod: 1000,
+        connectTimeout: 10 * 1000
+    });
+
+    setTimeout(() => {
+        if (!isConnected) {
+            document.getElementById('connectionStatus').classList.replace('connecting', 'disconnected');
+            document.getElementById('statusText').textContent = 'Connection to MQTT broker failed';
+        }
+    }, 10000);
+
+    client.on('error', (error) => {
+        document.getElementById('connectionStatus').classList.replace('connecting', 'disconnected');
+        document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
+        document.getElementById('statusText').textContent = 'Connection Failed';
+        showError('Error from MQTT broker: ' + error.message);
+    });
+
+    function interpolateColor(color1, color2, factor) {
+        // Create a temporary element to compute CSS variables
+        const temp = document.createElement('div');
+        document.body.appendChild(temp);
+        
+        // Handle CSS variables
+        if (color1.startsWith('var(')) {
+            temp.style.color = color1;
+            color1 = getComputedStyle(temp).color;
+            temp.style.color = color2;
+            color2 = getComputedStyle(temp).color;
+        }
+        
+        document.body.removeChild(temp);
+
+        // Parse RGB/RGBA values
+        const rgb1 = color1.match(/\d+(\.\d+)?/g).map(Number);
+        const rgb2 = color2.match(/\d+(\.\d+)?/g).map(Number);
+
+        // Interpolate RGB values
+        const r = Math.round(rgb1[0] + (rgb2[0] - rgb1[0]) * factor);
+        const g = Math.round(rgb1[1] + (rgb2[1] - rgb1[1]) * factor);
+        const b = Math.round(rgb1[2] + (rgb2[2] - rgb1[2]) * factor);
+        
+        // Handle alpha if present
+        if (rgb1.length === 4 && rgb2.length === 4) {
+            const a = rgb1[3] + (rgb2[3] - rgb1[3]) * factor;
+            return `rgba(${r}, ${g}, ${b}, ${a})`;
+        }
+        
+        return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    function updateTheme(temperature) {
+        if (temperature === "--") return;
+        
+        // Calculate interpolation factor (0 = cold, 1 = hot)
+        const factor = Math.max(0, Math.min(1, (parseFloat(temperature) - COLD_TEMP) / (HOT_TEMP - COLD_TEMP)));
+        
+        const root = document.documentElement;
+        
+        // Update each CSS variable with interpolated colors
+        root.style.setProperty('--bg-color', 
+            interpolateColor('var(--bg-color-cold)', 'var(--bg-color-hot)', factor));
+        root.style.setProperty('--gradient-start', 
+            interpolateColor('var(--gradient-start-cold)', 'var(--gradient-start-hot)', factor));
+        root.style.setProperty('--gradient-end', 
+            interpolateColor('var(--gradient-end-cold)', 'var(--gradient-end-hot)', factor));
+        root.style.setProperty('--accent-color', 
+            interpolateColor('var(--accent-color-cold)', 'var(--accent-color-hot)', factor));
+        root.style.setProperty('--accent-glow', 
+            interpolateColor('var(--accent-glow-cold)', 'var(--accent-glow-hot)', factor));
+        root.style.setProperty('--btn-bg', 
+            interpolateColor('var(--btn-bg-cold)', 'var(--btn-bg-hot)', factor));
+        root.style.setProperty('--btn-bg-hover', 
+            interpolateColor('var(--btn-bg-hover-cold)', 'var(--btn-bg-hover-hot)', factor));
+    }
+
+    function updateUI() {
+        document.querySelector('.current-temp').textContent = `${currentTemp}°C`;
+        document.querySelector('.heater-temp').textContent = `Heater: ${currentHeaterTemp}°C ${isHeating === null ? '' : isHeating ? 'On' : 'Off'}`;
+        if (targetTemp !== "--") {
+            document.querySelector('.target-temp').textContent = `Target: ${targetTemp.toFixed(1)}°C`;
+        } else {
+            document.querySelector('.target-temp').textContent = `Target: ${targetTemp}°C`;
+        }
+        updateTheme(currentTemp);
+        
+        // Update bubble button
+        const bubbleBtn = document.getElementById('bubbleBtn');
+        const bubbleText = document.getElementById('bubbleText');
+        if (bubblesEnabled) {
+            bubbleBtn.classList.add('enabled');
+            bubbleText.textContent = 'ON';
+        } else {
+            bubbleBtn.classList.remove('enabled');
+            bubbleText.textContent = 'OFF';
+        }
+        
+        // Show/hide pregnancy warning
+        const warningElement = document.querySelector('.pregnancy-warning');
+        if (currentTemp !== "--" && parseFloat(currentTemp) > 38.9 && pregnancyWarningEnabled) {
+            warningElement.classList.add('visible');
+        } else {
+            warningElement.classList.remove('visible');
+        }
+        
+        // Add theme-ready class if we have a temperature
+        if (currentTemp !== "--" && !document.body.classList.contains('theme-ready')) {
+            document.body.classList.add('theme-ready');
+        }
+    }
+
+    function checkConnectionStatus() {
+        const timeSinceLastUpdate = Date.now() - lastTempUpdate;
+        if (timeSinceLastUpdate > 5000 && lastRecievedTargetTemp !== "--") {
+            document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
+            document.getElementById('statusText').textContent = 'Not receiving updates';
+            showError('Stopped receiving updates from ESP');
+        }
+    }
+
+    function showError(message, duration = 3000) {
+        const errorElement = document.getElementById('errorMessage');
+        
+        // Clear any existing timeouts and animations
+        if (errorMessageTimeout) {
+            clearTimeout(errorMessageTimeout);
+        }
+        
+        errorElement.className = 'error-message';
+        
+        // Start new animation sequence
+        setTimeout(() => {
+            errorElement.classList.add('visible', 'fade-in');
+            errorElement.textContent = message;
+        }, 10);
+
+        errorMessageTimeout = setTimeout(() => {
+            errorElement.classList.remove('fade-in');
+            errorElement.classList.add('fade-out');
+            
+            setTimeout(() => {
+                errorElement.classList.remove('visible', 'fade-out');
+            }, 300);
+        }, duration);
+    }
+
+    function setConnected() {
+        document.getElementById('connectionStatus').classList.replace('connecting', 'connected');
+        document.getElementById('statusText').textContent = 'Connected';
+    }
+
+    client.on("connect", async () => {
+        isConnected = true;
+        Object.values(TOPICS).forEach(topic => client.subscribe(topic));
+        
+        const message = await encryptMessage({
+            deviceId: CONFIG.deviceId,
+            timestamp: Date.now()
+        });
+        client.publish(TOPICS.initialRequest, message);
+        
+        setTimeout(() => {
+            if (currentTemp === "--") {
+                document.getElementById('connectionStatus').classList.replace('connecting', 'disconnected');
+                document.getElementById('statusText').textContent = 'Device not responding';
+                showError('No response from device');
+            }
+        }, 3000);
+        
+        if (tempUpdateChecker) clearInterval(tempUpdateChecker);
+        tempUpdateChecker = setInterval(checkConnectionStatus, 1000);
+    });
+
+    client.on("message", async (topic, message) => {
+        try {
+            const decryptedMessage = await decryptMessage(message.toString());
+            console.log("decryptedMessage", decryptedMessage);
+            switch(topic) {
+                case TOPICS.temperature:
+                    setConnected();
+                    currentTemp = decryptedMessage.value.toFixed(1);
+                    currentHeaterTemp = decryptedMessage.heaterValue.toFixed(1);
+                    if (invalidTemperatures.includes(currentTemp)) {
+                        currentTemp = "--";
+                    }
+                    if (invalidTemperatures.includes(currentHeaterTemp)) {
+                        currentHeaterTemp = "--";
+                    }
+                    if (currentTemp === "--" || currentHeaterTemp === "--") {
+                        showError("Invalid temperature reading");
+                    }
+                    isHeating = decryptedMessage.isHeating;
+                    lastRecievedBubblesEnabled = decryptedMessage.bubbles;
+                    lastRecievedTargetTemp = decryptedMessage.target;
+                    if (targetTemp === "--") {
+                        targetTemp = decryptedMessage.target;
+                    }
+                    if (targetTemp != decryptedMessage.target || bubblesEnabled != decryptedMessage.bubbles) {
+                        if (!(targetTempTimeoutCreatedAt && Date.now() - targetTempTimeoutCreatedAt < 3000)) {
+                            targetTemp = decryptedMessage.target;
+                            bubblesEnabled = decryptedMessage.bubbles;
+                        }
+                    }
+                    lastTempUpdate = Date.now();
+                    document.getElementById('connectionStatus').classList.replace('disconnected', 'connected');
+                    document.getElementById('statusText').textContent = 'Connected';
+                    break;
+                case TOPICS.status:
+                    if (decryptedMessage.type === 'target_temp_update') {
+                        if (targetTempTimeout && decryptedMessage.message == targetTemp) {
+                            clearTimeout(targetTempTimeout)
+                        }
+                        if (decryptedMessage.status === 'error') {
+                            if (targetTempTimeout) {
+                                clearTimeout(targetTempTimeout);
+                            }
+                            showError(decryptedMessage.message || 'Failed to update target temperature');
+                            targetTemp = lastRecievedTargetTemp;
+                            bubblesEnabled = lastRecievedBubblesEnabled;
+                        }
+                    } else if (decryptedMessage.status === 'error') {
+                        showError(decryptedMessage.message);
+                    }
+                    break;
+            }
+            updateUI();
+        } catch (error) {
+            console.error('Error processing message:', error);
+        }
+    });
+
+    async function updateTargetTemperature(newTemp) {
+        if (!CONFIG.secretKey && currentTemp === "--") {
+            showError('Secret key not set');
+            return;
+        }
+        if (targetTemp === "--") {
+            showError('Device not connected.');
+            return;
+        }
+
+        if (targetTempTimeout) clearTimeout(targetTempTimeout);
+
+        if (newTemp !== undefined) {
+            targetTemp = newTemp;
+        }
+
+        const message = await encryptMessage({
+            deviceId: CONFIG.deviceId,
+            value: targetTemp,
+            bubbles: bubblesEnabled,
+            timestamp: Date.now()
+        });
+
+        client.publish(TOPICS.targetTemp, message);
+        updateUI();
+
+        targetTempTimeoutCreatedAt = Date.now();
+        targetTempTimeout = setTimeout(() => {
+            document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
+            document.getElementById('statusText').textContent = 'ESP Unresponsive';
+            showError('No response from device');
+            targetTemp = lastRecievedTargetTemp;
+            bubblesEnabled = lastRecievedBubblesEnabled;
+            updateUI();
+        }, 3000);
+    }
+
+    function addButtonPress(button) {
+        prevButtonPresses.push(button);
+        if (prevButtonPresses.length > 10) {
+            prevButtonPresses.shift();
+        }
+        const lastTen = prevButtonPresses.join('');
+        if (lastTen === "++-+--+---") {
+            console.log("setting to", !pregnancyWarningEnabled);
+            pregnancyWarningEnabled = !pregnancyWarningEnabled;
+            localStorage.setItem('pregnancyWarningEnabled', pregnancyWarningEnabled);
+            updateUI();
+        }
+    }
+
+    let holdTimeout = null;
+    let holdInterval = null;
+    let isHolding = false;
+
+    async function startHold(button) {
+        if (isHolding) return;
+        isHolding = true;
+        
+        if (button === 'increase') {
+            addButtonPress("+");
+            await updateTargetTemperature(Math.min(targetTemp + targetTempStep, MAX_TEMP));
+        } else {
+            addButtonPress("-");
+            await updateTargetTemperature(Math.max(targetTemp - targetTempStep, MIN_TEMP));
+        }
+        
+        holdTimeout = setTimeout(async () => {
+            holdInterval = setInterval(async () => {
+                if (button === 'increase') {
+                    addButtonPress("+");
+                    await updateTargetTemperature(Math.min(targetTemp + targetTempStep, MAX_TEMP));
+                } else {
+                    addButtonPress("-");
+                    await updateTargetTemperature(Math.max(targetTemp - targetTempStep, MIN_TEMP));
+                }
+            }, 100);
+        }, 600);
+    }
+
+    function stopHold() {
+        isHolding = false;
+        if (holdTimeout) {
+            clearTimeout(holdTimeout);
+            holdTimeout = null;
+        }
+        if (holdInterval) {
+            clearInterval(holdInterval);
+            holdInterval = null;
+        }
+    }
+
+    // Increase button event handlers
+    const increaseBtn = document.getElementById('increase');
+    increaseBtn.addEventListener('mousedown', () => startHold('increase'));
+    increaseBtn.addEventListener('mouseup', stopHold);
+    increaseBtn.addEventListener('mouseleave', stopHold);
+    increaseBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startHold('increase');
+    });
+    increaseBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        stopHold();
+    });
+
+    // Decrease button event handlers
+    const decreaseBtn = document.getElementById('decrease');
+    decreaseBtn.addEventListener('mousedown', () => startHold('decrease'));
+    decreaseBtn.addEventListener('mouseup', stopHold);
+    decreaseBtn.addEventListener('mouseleave', stopHold);
+    decreaseBtn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        startHold('decrease');
+    });
+    decreaseBtn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        stopHold();
+    });
+
+    // Add sunset functionality
+    async function fetchSunsetTime() {
+        try {
+            const response = await fetch('https://api.sunrise-sunset.org/json?lat=60.390361&lng=5.328442&formatted=0');
+            const data = await response.json();
+            const sunsetUTC = new Date(data.results.sunset);
+            const sunset = sunsetUTC.toLocaleTimeString('no-NO', {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: 'Europe/Oslo'
+            });
+            document.getElementById('sunsetTime').textContent = sunset;
+        } catch (error) {
+            console.error('Error fetching sunset time:', error);
+            document.getElementById('sunsetTime').textContent = '--:--';
+        }
+    }
+
+    // Fetch sunset time initially and update every hour
+    fetchSunsetTime();
+    setInterval(fetchSunsetTime, 3600000);
+
+    // Add settings menu functionality
+    const settingsButton = document.getElementById('settingsButton');
+    const settingsMenu = document.getElementById('settingsMenu');
+    const overlay = document.getElementById('overlay');
+    const secretKeyInput = document.getElementById('secretKeyInput');
+    const targetTempStepInput = document.getElementById('targetTempStep');
+    const saveSettings = document.getElementById('saveSettings');
+    const cancelSettings = document.getElementById('cancelSettings');
+
+    settingsButton.addEventListener('click', () => {
+        secretKeyInput.value = CONFIG.secretKey;
+        targetTempStepInput.value = targetTempStep;
+        settingsMenu.classList.add('visible');
+        overlay.classList.add('visible');
+    });
+
+    function closeSettings() {
+        settingsMenu.classList.remove('visible');
+        overlay.classList.remove('visible');
+    }
+
+    saveSettings.addEventListener('click', () => {
+        const newKey = secretKeyInput.value;
+        CONFIG.secretKey = newKey;
+        localStorage.setItem('jacuzziSecretKey', newKey);
+        targetTempStep = parseFloat(targetTempStepInput.value);
+        if (isNaN(targetTempStep)) {
+            targetTempStep = 0.5;
+        }
+        if (targetTempStep < 0.1) {
+            targetTempStep = 0.1;
+        }
+        targetTempStep = parseFloat(targetTempStep.toFixed(1));
+        localStorage.setItem('jacuzziTargetTempStep', targetTempStep);
+        closeSettings();
+    });
+
+    cancelSettings.addEventListener('click', closeSettings);
+    overlay.addEventListener('click', closeSettings);
+
+    async function toggleBubbles() {
+        bubblesEnabled = !bubblesEnabled;
+        updateTargetTemperature();
+    }
+
+    document.getElementById('bubbleBtn').addEventListener('click', toggleBubbles);
+
+    updateUI();
+</script>
+</html>
