@@ -56,7 +56,9 @@ bool bubbleScheduled = false;
 unsigned long bubbleStartMillis = 0;
 bool scheduledBubblesRun[3] = {false, false, false};
 int bubbleRetryCount = 0;
-const int BUBBLE_RETRY_LIMIT = 3;
+const int BUBBLE_RETRY_LIMIT = 10;
+int heaterRetryCount = 0;
+const int HEATER_RETRY_LIMIT = 10;
 
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
@@ -178,8 +180,19 @@ void loop() {
   readSerialData();
   
   if (waitingForAck && millis() - ackRequestTime > ackTimeout) {
-    sendError("NO ACK RECEIVED FOR HEATER COMMAND. CHECK THE ARDUINO IMMEDIATELY!!!");
-    waitingForAck = false;
+    if (heaterRetryCount < HEATER_RETRY_LIMIT) {
+      heaterRetryCount++;
+      if (desiredHeaterState) {
+        Serial.println("CMD:ON");
+      } else {
+        Serial.println("CMD:OFF");
+      }
+      ackRequestTime = millis();
+    } else {
+      sendError("NO ACK RECEIVED FOR HEATER COMMAND. CHECK THE ARDUINO IMMEDIATELY!!!");
+      waitingForAck = false;
+      heaterRetryCount = 0;
+    }
   }
   if (waitingForBubblesAck && millis() - bubblesAckRequestTime > ackTimeout) {
     if (bubbleRetryCount < BUBBLE_RETRY_LIMIT) {
@@ -390,10 +403,12 @@ void readSerialData() {
       heaterEnabled = true;
       lastHeaterSwitch = millis();
       waitingForAck = false;
+      heaterRetryCount = 0;
     } else if (line == "ACK:OFF") {
       heaterEnabled = false;
       lastHeaterSwitch = millis();
       waitingForAck = false;
+      heaterRetryCount = 0;
     } else if (line == "ACK:BUBBLES_ON") {
       bubblesEnabled = true;
       waitingForBubblesAck = false;
@@ -405,6 +420,7 @@ void readSerialData() {
     } else if (line == "NACK:ON" || line == "NACK:OFF") {
       sendError("Uno NACK for heater command: " + line);
       waitingForAck = false;
+      heaterRetryCount = 0;
     } else if (line == "NACK:BUBBLES_ON" || line == "NACK:BUBBLES_OFF") {
       sendError("Uno NACK for bubbles command: " + line);
       waitingForBubblesAck = false;

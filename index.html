@@ -911,7 +911,7 @@
                         targetTemp = decryptedMessage.target;
                     }
                     if (targetTemp != decryptedMessage.target || bubblesEnabled != decryptedMessage.bubbles) {
-                        if (!(targetTempTimeoutCreatedAt && Date.now() - targetTempTimeoutCreatedAt < 3000)) {
+                        if (!(targetTempTimeoutCreatedAt && Date.now() - targetTempTimeoutCreatedAt < 6000)) {
                             targetTemp = decryptedMessage.target;
                             bubblesEnabled = decryptedMessage.bubbles;
                         }
@@ -978,7 +978,7 @@
             targetTemp = lastRecievedTargetTemp;
             bubblesEnabled = lastRecievedBubblesEnabled;
             updateUI();
-        }, 3000);
+        }, 6000);
     }
 
     function addButtonPress(button) {
