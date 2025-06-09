@@ -826,7 +826,7 @@
 
     function checkConnectionStatus() {
         const timeSinceLastUpdate = Date.now() - lastTempUpdate;
-        if (timeSinceLastUpdate > 5000 && lastRecievedTargetTemp !== "--") {
+        if (timeSinceLastUpdate > 6000 && lastRecievedTargetTemp !== "--") {
             document.getElementById('connectionStatus').classList.replace('connected', 'disconnected');
             document.getElementById('statusText').textContent = 'Not receiving updates';
             showError('Stopped receiving updates from ESP');
