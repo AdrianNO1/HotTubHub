@@ -1,7 +1,6 @@
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
-#include <EEPROM.h>
 #include <AESLib.h>
 #include <base64.h>
 #include <time.h>
@@ -30,8 +29,6 @@ String topicInitialRequest = String(topicPrefix) + "initial_request";
 
 const float MIN_TEMP = 0.0;
 const float MAX_TEMP = 50.0;
-
-const int TARGET_TEMP_ADDR = 0;
 
 const unsigned long heaterMinSwitchTime = 30;
 unsigned long heaterSwitchTime = 0;
@@ -152,8 +149,6 @@ void setup() {
   Serial.begin(115200);
   delay(100);
   
-  EEPROM.begin(512);
-  
   connectWiFi();
   
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
@@ -168,8 +163,6 @@ void setup() {
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(1024);
   
-  loadTargetTemp();
-  
   connectMQTT();
 }
 
@@ -181,21 +174,6 @@ void loop() {
   
   readSerialData();
   
-  if (waitingForAck && millis() - ackRequestTime > ackTimeout) {
-    if (heaterRetryCount < HEATER_RETRY_LIMIT) {
-      heaterRetryCount++;
-      if (desiredHeaterState) {
-        Serial.println("CMD:ON");
-      } else {
-        Serial.println("CMD:OFF");
-      }
-      ackRequestTime = millis();
-    } else {
-      sendError("NO ACK RECEIVED FOR HEATER COMMAND. CHECK THE ARDUINO IMMEDIATELY!!!");
-      waitingForAck = false;
-      heaterRetryCount = 0;
-    }
-  }
   if (waitingForBubblesAck && millis() - bubblesAckRequestTime > ackTimeout) {
     if (bubbleRetryCount < BUBBLE_RETRY_LIMIT) {
       bubbleRetryCount++;
@@ -212,8 +190,9 @@ void loop() {
     }
   }
   
-  controlHeater();
-  
+  scheduleAutomaticBubbles();
+  checkBubbleTimer();
+
   static unsigned long lastTempUpdate = 0;
   if (millis() - lastTempUpdate >= 5000) {
     if (millis() - lastSerialRead > serialTimeout) {
@@ -222,9 +201,6 @@ void loop() {
     lastTempUpdate = millis();
     sendTemperatureUpdate();
   }
-
-  scheduleAutomaticBubbles();
-  checkBubbleTimer();
 }
 
 void connectWiFi() {
@@ -338,7 +314,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     if (newTarget >= MIN_TEMP && newTarget <= MAX_TEMP) {
       targetTemp = newTarget;
       lastTargetUpdateTimestamp = messageTimestamp;
-      saveTargetTemp();
+      Serial.print("T:"); Serial.println(newTarget);
 
       bool newBubbles = doc["bubbles"] | false;
       if (newBubbles != bubblesEnabled) {
@@ -401,16 +377,10 @@ void readSerialData() {
       currentWaterTemp = -127.0;
       sendError("Water sensor " + waterErrorType);
 
-    } else if (line == "ACK:ON") {
+    } else if (line == "HEATER:ON") {
       heaterEnabled = true;
-      lastHeaterSwitch = millis();
-      waitingForAck = false;
-      heaterRetryCount = 0;
-    } else if (line == "ACK:OFF") {
+    } else if (line == "HEATER:OFF") {
       heaterEnabled = false;
-      lastHeaterSwitch = millis();
-      waitingForAck = false;
-      heaterRetryCount = 0;
     } else if (line == "ACK:BUBBLES_ON") {
       bubblesEnabled = true;
       waitingForBubblesAck = false;
@@ -419,17 +389,6 @@ void readSerialData() {
       bubblesEnabled = false;
       waitingForBubblesAck = false;
       bubbleRetryCount = 0;
-    } else if (line == "NACK:ON" || line == "NACK:OFF") {
-      if (millis() - mqttNackErrorTime > mqttErrorCooldown) {
-        if (line == "NACK:ON") {
-          sendError("SAFETY SHUTOFF ENGAGED. HEATER TOO HOT!!!");
-        } else {
-          sendError("Uno NACK for heater command: " + line);
-        }
-        mqttNackErrorTime = millis();
-      }
-      waitingForAck = false;
-      heaterRetryCount = 0;
     } else if (line == "NACK:BUBBLES_ON" || line == "NACK:BUBBLES_OFF") {
       if (millis() - mqttNackErrorTime > mqttErrorCooldown) {
         sendError("Uno NACK for bubbles command: " + line);
@@ -443,53 +402,6 @@ void readSerialData() {
       sendError("SAFETY SHUTOFF ENGAGED. HEATER TOO HOT!!!");
     }
   }
-}
-
-void controlHeater() {
-  unsigned long currentTime = millis();
-  
-  // Check if enough time has passed since last switch
-  if (currentTime - lastHeaterSwitch < heaterMinSwitchTime * 1000) {
-    return;
-  }
-  
-  // Don't control heater if there's a sensor error
-  if (waterSensorError || heaterSensorError) {
-    if (heaterEnabled) {
-      disableHeater();
-    }
-    return;
-  }
-  
-  // Control logic
-  if (targetTemp == 0) {
-    // Target temp is 0, always turn off heater
-    if (heaterEnabled) {
-      disableHeater();
-    }
-  } else if (currentWaterTemp < targetTemp && !heaterEnabled) {
-    // Turn on heater
-    enableHeater();
-  } else if (currentWaterTemp >= targetTemp && heaterEnabled) {
-    // Turn off heater
-    disableHeater();
-  }
-}
-
-void enableHeater() {
-  // Send command to Arduino Uno to turn on heater
-  Serial.println("CMD:ON");
-  waitingForAck = true;
-  desiredHeaterState = true;
-  ackRequestTime = millis();
-}
-
-void disableHeater() {
-  // Send command to Arduino Uno to turn off heater
-  Serial.println("CMD:OFF");
-  waitingForAck = true;
-  desiredHeaterState = false;
-  ackRequestTime = millis();
 }
 
 void enableBubbles() {
@@ -506,7 +418,6 @@ void disableBubbles() {
   bubblesAckRequestTime = millis();
 }
 
-// Add automatic bubble scheduling functions
 void scheduleAutomaticBubbles() {
   time_t now = time(nullptr);
   struct tm * timeinfo = localtime(&now);
@@ -556,19 +467,4 @@ void sendError(String errorMessage) {
   serializeJson(doc, message);
   mqttPublishEncrypted(topicStatus, doc);
   Serial.println("Sent error: " + message);
-}
-
-void loadTargetTemp() {
-  EEPROM.get(TARGET_TEMP_ADDR, targetTemp);
-  
-  if (isnan(targetTemp) || targetTemp < MIN_TEMP || targetTemp > MAX_TEMP) {
-    Serial.println("Invalid target temperature in flash. Setting to 5 degrees");
-    targetTemp = 5;
-    saveTargetTemp();
-  }
-}
-
-void saveTargetTemp() {
-  EEPROM.put(TARGET_TEMP_ADDR, targetTemp);
-  EEPROM.commit();
 }

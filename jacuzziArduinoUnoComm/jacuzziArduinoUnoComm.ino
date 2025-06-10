@@ -1,5 +1,6 @@
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <EEPROM.h>
 
 const int temperatureSensorsPin = 8;
 OneWire oneWire(temperatureSensorsPin);
@@ -20,9 +21,23 @@ bool bubblesEnabled = false;
 
 float heaterTemp = 0;
 float waterTemp = 0;
+bool heaterInvalidTemperature = false
+
+const int TARGET_TEMP_ADDR = 0;
+float targetTemp = 5.0;
+
+// Define temperature bounds and heater switch interval
+const float MIN_TEMP = 0.0;
+const float MAX_TEMP = 50.0;
+const unsigned long heaterMinSwitchTime = 30UL; // seconds
+unsigned long lastHeaterSwitch = 0;
 
 void setup() {
   Serial.begin(115200);
+  EEPROM.get(TARGET_TEMP_ADDR, targetTemp);
+  if (isnan(targetTemp) || targetTemp < MIN_TEMP || targetTemp > MAX_TEMP) {
+    targetTemp = 5.0;
+  }
   sensors.begin();
   pinMode(HEATER_CONTROL_PIN, OUTPUT);
   digitalWrite(HEATER_CONTROL_PIN, LOW);
@@ -34,18 +49,16 @@ void loop() {
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
     cmd.trim();
-    if (cmd == "CMD:ON") {
-      if (!heaterEnabled && heaterTemp <= SAFETY_MAX_TEMP) {
-        digitalWrite(HEATER_CONTROL_PIN, HIGH);
-        heaterEnabled = true;
-        Serial.println("ACK:ON");
-      } else if (heaterTemp > SAFETY_MAX_TEMP) {
-        Serial.println("NACK:ON");
+    if (cmd.startsWith("T:")) {
+      float newTarget = cmd.substring(2).toFloat();
+      if (newTarget >= 0.0 && newTarget <= 50.0) {
+        targetTemp = newTarget;
+        EEPROM.put(TARGET_TEMP_ADDR, targetTemp);
+        Serial.print("ACK:T:");
+        Serial.println(targetTemp);
+      } else {
+        Serial.println("ERR:T:OUT_OF_RANGE");
       }
-    } else if (cmd == "CMD:OFF") {
-      digitalWrite(HEATER_CONTROL_PIN, LOW);
-      heaterEnabled = false;
-      Serial.println("ACK:OFF");
     } else if (cmd == "CMD:BUBBLES_ON") {
       digitalWrite(BUBBLES_CONTROL_PIN, HIGH);
       bubblesEnabled = true;
@@ -66,16 +79,19 @@ void loop() {
     heaterTemp = sensors.getTempC(heaterSensor);
     if (heaterTemp == DEVICE_DISCONNECTED_C) {
       Serial.println("ERR:H:DISCONNECTED"); // Heater sensor disconnected
+      disableHeater();
+      heaterInvalidTemperature = true;
     } else if (heaterTemp <= -126 || heaterTemp > 125) {
       Serial.println("ERR:H:INVALID"); // Heater sensor invalid reading
+      disableHeater();
+      heaterInvalidTemperature = true;
     } else {
+      heaterInvalidTemperature = false;
       Serial.print("H:");
       Serial.println(heaterTemp);
       // Safety check
-      if (heaterTemp > SAFETY_MAX_TEMP && heaterEnabled) {
-        digitalWrite(HEATER_CONTROL_PIN, LOW);
-        heaterEnabled = false;
-        Serial.println("SAFETY:OFF");
+      if (heaterTemp > SAFETY_MAX_TEMP) {
+        disableHeater();
       }
     }
 
@@ -87,6 +103,28 @@ void loop() {
     } else {
       Serial.print("W:");
       Serial.println(waterTemp);
+      
+      if (millis() - lastHeaterSwitch >= heaterMinSwitchTime * 1000) {
+        if (waterTemp < targetTemp && !heaterEnabled && heaterTemp <= SAFETY_MAX_TEMP && !heaterInvalidTemperature) {
+          enableHeater();
+        } else if ((waterTemp >= targetTemp || heaterTemp > SAFETY_MAX_TEMP) && heaterEnabled && !heaterInvalidTemperature) {
+          disableHeater();
+        }
+      }
     }
   }
+}
+
+void enableHeater() {
+  digitalWrite(HEATER_CONTROL_PIN, HIGH);
+  heaterEnabled = true;
+  lastHeaterSwitch = millis();
+  Serial.println("HEATER:ON");
+}
+
+void disableHeater() {
+  digitalWrite(HEATER_CONTROL_PIN, LOW);
+  heaterEnabled = false;
+  lastHeaterSwitch = millis();
+  Serial.println("HEATER:OFF");
 }
