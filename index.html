@@ -922,6 +922,9 @@
                     break;
                 case TOPICS.status:
                     if (decryptedMessage.type === 'target_temp_update') {
+                        if (decryptedMessage.status === 'ok') {
+                            lastRecievedTargetTemp = decryptedMessage.message;
+                        }
                         if (targetTempTimeout && decryptedMessage.message == targetTemp) {
                             clearTimeout(targetTempTimeout)
                         }

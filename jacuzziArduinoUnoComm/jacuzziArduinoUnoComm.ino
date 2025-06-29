@@ -21,7 +21,7 @@ bool bubblesEnabled = false;
 
 float heaterTemp = 0;
 float waterTemp = 0;
-bool heaterInvalidTemperature = false
+bool heaterInvalidTemperature = false;
 
 const int TARGET_TEMP_ADDR = 0;
 float targetTemp = 5.0;
@@ -40,9 +40,12 @@ void setup() {
   }
   sensors.begin();
   pinMode(HEATER_CONTROL_PIN, OUTPUT);
-  digitalWrite(HEATER_CONTROL_PIN, LOW);
+  digitalWrite(HEATER_CONTROL_PIN, HIGH);
   pinMode(BUBBLES_CONTROL_PIN, OUTPUT);
-  digitalWrite(BUBBLES_CONTROL_PIN, LOW);
+  digitalWrite(BUBBLES_CONTROL_PIN, HIGH);
+  // Send current target temperature to ESP on startup
+  Serial.print("T:");
+  Serial.println(targetTemp);
 }
 
 void loop() {
@@ -59,12 +62,16 @@ void loop() {
       } else {
         Serial.println("ERR:T:OUT_OF_RANGE");
       }
+    } else if (cmd == "REQ:T") {
+      // ESP is requesting the currently stored target temperature
+      Serial.print("T:");
+      Serial.println(targetTemp);
     } else if (cmd == "CMD:BUBBLES_ON") {
-      digitalWrite(BUBBLES_CONTROL_PIN, HIGH);
+      digitalWrite(BUBBLES_CONTROL_PIN, LOW);
       bubblesEnabled = true;
       Serial.println("ACK:BUBBLES_ON");
     } else if (cmd == "CMD:BUBBLES_OFF") {
-      digitalWrite(BUBBLES_CONTROL_PIN, LOW);
+      digitalWrite(BUBBLES_CONTROL_PIN, HIGH);
       bubblesEnabled = false;
       Serial.println("ACK:BUBBLES_OFF");
     }
@@ -105,7 +112,10 @@ void loop() {
       Serial.println(waterTemp);
       
       if (millis() - lastHeaterSwitch >= heaterMinSwitchTime * 1000) {
-        if (waterTemp < targetTemp && !heaterEnabled && heaterTemp <= SAFETY_MAX_TEMP && !heaterInvalidTemperature) {
+        if (targetTemp == 0 && heaterEnabled) {
+          disableHeater();
+        }
+        else if (waterTemp < targetTemp && !heaterEnabled && heaterTemp <= SAFETY_MAX_TEMP && !heaterInvalidTemperature) {
           enableHeater();
         } else if ((waterTemp >= targetTemp || heaterTemp > SAFETY_MAX_TEMP) && heaterEnabled && !heaterInvalidTemperature) {
           disableHeater();
@@ -116,14 +126,14 @@ void loop() {
 }
 
 void enableHeater() {
-  digitalWrite(HEATER_CONTROL_PIN, HIGH);
+  digitalWrite(HEATER_CONTROL_PIN, LOW);
   heaterEnabled = true;
   lastHeaterSwitch = millis();
   Serial.println("HEATER:ON");
 }
 
 void disableHeater() {
-  digitalWrite(HEATER_CONTROL_PIN, LOW);
+  digitalWrite(HEATER_CONTROL_PIN, HIGH);
   heaterEnabled = false;
   lastHeaterSwitch = millis();
   Serial.println("HEATER:OFF");
