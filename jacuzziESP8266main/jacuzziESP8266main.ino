@@ -5,6 +5,7 @@
 #include <base64.h>
 #include <time.h>
 #include "secrets.h"
+#include <math.h>
 
 #define AES_KEY(str) { \
   str[0], str[1], str[2], str[3], \
@@ -39,7 +40,7 @@ const unsigned long serialTimeout = 30000;
 
 float currentWaterTemp = -127.0;
 float currentHeaterTemp = -127.0;
-float targetTemp = MIN_TEMP;
+float targetTemp = 5;
 bool heaterEnabled = false;
 bool waterSensorError = false;
 bool heaterSensorError = false;
@@ -144,6 +145,12 @@ bool desiredHeaterState = false;
 unsigned long ackRequestTime = 0;
 const unsigned long ackTimeout = 5000;
 
+// Variables for tracking target temperature ACKs
+bool waitingForTempAck = false;
+float pendingTargetTemp = MIN_TEMP;
+unsigned long tempAckRequestTime = 0;
+const unsigned long tempAckTimeout = 3000; // 3 seconds
+
 void setup() {
   randomSeed(analogRead(0) + millis());
   Serial.begin(115200);
@@ -164,6 +171,9 @@ void setup() {
   mqttClient.setBufferSize(1024);
   
   connectMQTT();
+  
+  // Request the stored target temperature from the Arduino Uno
+  Serial.println("REQ:T");
 }
 
 void loop() {
@@ -188,6 +198,12 @@ void loop() {
       waitingForBubblesAck = false;
       bubbleRetryCount = 0;
     }
+  }
+  
+  if (waitingForTempAck && millis() - tempAckRequestTime > tempAckTimeout) {
+    sendError("NO ACK RECEIVED FOR TARGET TEMPERATURE. RETRYING...");
+    Serial.print("T:"); Serial.println(pendingTargetTemp);
+    tempAckRequestTime = millis();
   }
   
   scheduleAutomaticBubbles();
@@ -330,6 +346,10 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       statusDoc["message"] = newTarget;
       mqttPublishEncrypted(topicStatus, statusDoc);
       Serial.println("Target temperature updated to " + String(newTarget) + "°C");
+
+      waitingForTempAck = true;
+      pendingTargetTemp = newTarget;
+      tempAckRequestTime = millis();
     } else {
       DynamicJsonDocument statusDoc(256);
       statusDoc["deviceId"] = deviceId;
@@ -400,6 +420,19 @@ void readSerialData() {
         heaterEnabled = false;
       }
       sendError("SAFETY SHUTOFF ENGAGED. HEATER TOO HOT!!!");
+    } else if (line.startsWith("ACK:T:")) {
+      float ackTemp = line.substring(6).toFloat();
+      if (waitingForTempAck && fabs(ackTemp - pendingTargetTemp) < 0.01) {
+        waitingForTempAck = false;
+      }
+      
+      targetTemp = ackTemp;
+    } else if (line.startsWith("ERR:T:")) {
+      waitingForTempAck = false;
+      sendError("Uno error: " + line);
+    } else if (line.startsWith("T:")) {
+      float unoTarget = line.substring(2).toFloat();
+      targetTemp = unoTarget;
     }
   }
 }
