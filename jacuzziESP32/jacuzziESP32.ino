@@ -20,7 +20,7 @@
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-const char* mqttBroker = "192.168.1.73";
+const char* mqttBroker = "broker.emqx.io";
 const int   mqttPort   = 1883;
 const char* deviceId   = "jcz_001";
 const byte  aes_key[16] = AES_KEY(AES_KEY_STRING);
