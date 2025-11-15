@@ -44,12 +44,12 @@ DeviceAddress waterSensor  = {0x28, 0xFD, 0x77, 0x58, 0x00, 0x00, 0x00, 0xDE}; /
 const int HEATER_CONTROL_PIN  = 27;
 const int BUBBLES_CONTROL_PIN = 26;
 
-const float SAFETY_MAX_TEMP = 30.0;
+const float SAFETY_MAX_TEMP = 55.0;
 const float MIN_TEMP        = 0.0;
 const float MAX_TEMP        = 50.0;
 
 
-const unsigned long heaterMinSwitchTime = 300UL;
+const unsigned long heaterMinSwitchTime = 30UL;
 unsigned long lastHeaterSwitch = 0;
 
 const unsigned long SENSOR_INTERVAL = 1000UL;
