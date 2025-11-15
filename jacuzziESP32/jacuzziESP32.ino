@@ -20,7 +20,7 @@
 const char* ssid = WIFI_SSID;
 const char* password = WIFI_PASSWORD;
 
-const char* mqttBroker = "test.mosquitto.org";
+const char* mqttBroker = "192.168.1.134";
 const int   mqttPort   = 1883;
 const char* deviceId   = "jcz_001";
 const byte  aes_key[16] = AES_KEY(AES_KEY_STRING);
@@ -32,7 +32,7 @@ String topicTargetTemp    = String(topicPrefix) + "target_temperature";
 String topicInitialReq    = String(topicPrefix) + "initial_request";
 
 // 1-Wire temperature sensors
-const int temperatureSensorsPin = 25;
+const int temperatureSensorsPin = 33;
 OneWire oneWire(temperatureSensorsPin);
 DallasTemperature sensors(&oneWire);
 
@@ -52,7 +52,7 @@ const float MAX_TEMP        = 50.0;
 const unsigned long heaterMinSwitchTime = 30UL;
 unsigned long lastHeaterSwitch = 0;
 
-const unsigned long SENSOR_INTERVAL = 3000UL;
+const unsigned long SENSOR_INTERVAL = 2000UL;
 unsigned long lastSensorRead = 0;
 
 const int TARGET_TEMP_ADDR = 0;

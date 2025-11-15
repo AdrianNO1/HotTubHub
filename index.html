@@ -710,8 +710,8 @@
         }
     }
 
-    const client = mqtt.connect('wss://test.mosquitto.org:8081', {
-        protocol: 'wss',
+    const client = mqtt.connect('ws://192.168.1.134:8083', {
+        protocol: 'ws',
         protocolVersion: 4,
         clean: true,
         reconnectPeriod: 1000,
