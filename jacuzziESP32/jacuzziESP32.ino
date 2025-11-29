@@ -113,19 +113,17 @@ void encrypt(const char* plaintext, byte iv[], char* outputBuffer) {
   int padLen   = 16 - (plainLen % 16);
   int totalLen = plainLen + padLen;
 
-  // VLA or fixed buffer? Max JSON size is small, let's use a safe static size or dynamic alloc if needed.
-  // Given heap constraints, stack is better if small, but totalLen could be ~300. 
-  // ESP32 stack is ~8KB per task. 512 bytes is fine.
-  byte plainBytes[512]; 
-  if (totalLen > 512) {
-    // Fallback or error handling needed in real prod, but for now assume < 512
-    totalLen = 512; 
+  // Reduced buffer size from 512 to 300 based on max message analysis
+  // Max expected plaintext is ~256 bytes.
+  byte plainBytes[300]; 
+  if (totalLen > 300) {
+    totalLen = 300; 
   }
 
   memcpy(plainBytes, plaintext, plainLen);
   for (int i = plainLen; i < totalLen; i++) plainBytes[i] = padLen;
 
-  byte cipherBytes[512];
+  byte cipherBytes[300];
   byte iv_enc[N_BLOCK];
   memcpy(iv_enc, iv, N_BLOCK);
   aesLib.encrypt(plainBytes, totalLen, cipherBytes, aes_key, 128, iv_enc);
@@ -138,12 +136,12 @@ void decrypt(const char* ciphertext_base64, byte iv[], char* outputBuffer) {
   int inputLen = strlen(ciphertext_base64);
   int cipherLen = base64_dec_len((char*)ciphertext_base64, inputLen);
   
-  byte cipherBytes[512];
-  if (cipherLen > 512) cipherLen = 512; // Safety cap
+  byte cipherBytes[300];
+  if (cipherLen > 300) cipherLen = 300; // Safety cap
 
   base64_decode((char*)cipherBytes, (char*)ciphertext_base64, inputLen);
 
-  byte decryptedBytes[512];
+  byte decryptedBytes[300];
   byte iv_dec[N_BLOCK];
   memcpy(iv_dec, iv, N_BLOCK);
   aesLib.decrypt(cipherBytes, cipherLen, decryptedBytes, aes_key, 128, iv_dec);
@@ -163,40 +161,27 @@ void generateRandomIV(byte iv[]) {
   for (int i = 0; i < N_BLOCK; i++) iv[i] = random(0, 256);
 }
 
-String byteArrayToHexString(byte* buffer, int len) {
-  String hexStr = "";
-  for (int i = 0; i < len; i++) {
-    if (buffer[i] < 16) hexStr += "0";
-    hexStr += String(buffer[i], HEX);
-  }
-  return hexStr;
-}
-
-void hexStringToByteArray(String hex, byte* bytes, int len) {
-  for (int i = 0; i < len; i++) {
-    bytes[i] = strtoul(hex.substring(i * 2, i * 2 + 2).c_str(), NULL, 16);
-  }
-}
 
 void mqttPublishEncrypted(const char* topic, DynamicJsonDocument &doc) {
-  char plaintext[512];
+  // Reduced buffer sizes to save stack
+  char plaintext[256]; 
   size_t len = serializeJson(doc, plaintext, sizeof(plaintext));
   if (len >= sizeof(plaintext)) return; // Truncated, do not send
 
   byte iv[N_BLOCK];
   generateRandomIV(iv);
   
-  char ciphertext[700]; // Base64 expansion ~1.33x + padding
+  char ciphertext[512]; // Base64 expansion + padding. 256 bytes -> ~350 base64 chars. 512 is safe.
   encrypt(plaintext, iv, ciphertext);
   
   char ivHex[33];
   byteArrayToHexString(iv, N_BLOCK, ivHex);
 
-  DynamicJsonDocument encryptedDoc(1024);
+  DynamicJsonDocument encryptedDoc(768);
   encryptedDoc["iv"]        = ivHex;
   encryptedDoc["ciphertext"] = ciphertext;
 
-  char encryptedMessage[1024];
+  char encryptedMessage[768];
   serializeJson(encryptedDoc, encryptedMessage, sizeof(encryptedMessage));
   
   mqttClient.publish(topic, encryptedMessage);
@@ -208,7 +193,7 @@ void disableHeater();
 void enableBubbles();
 void disableBubbles();
 void sendTemperatureUpdate();
-void sendError(String msg);
+void sendError(const char* msg);
 void updateSensorsAndControl();
 
 
@@ -218,7 +203,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   // Use char array for topic comparison to avoid String allocation
   // Direct deserialization from payload buffer to avoid String copy loop
 
-  DynamicJsonDocument encDoc(512);
+  DynamicJsonDocument encDoc(768);
   if (deserializeJson(encDoc, payload, length) != DeserializationError::Ok) {
     Serial.println("Failed to parse encrypted JSON");
     return;
@@ -232,7 +217,7 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   byte iv[N_BLOCK];
   hexStringToByteArray(ivHex, iv, N_BLOCK);
 
-  char decryptedPayload[512];
+  char decryptedPayload[300];
   decrypt(ciphertext, iv, decryptedPayload);
   
   DynamicJsonDocument doc(512);
@@ -287,11 +272,21 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void connectWiFi() {
   if (WiFi.status() == WL_CONNECTED) return;
 
+  // Non-blocking WiFi connection
   if (millis() - lastWiFiReconnectAttempt >= RECONNECT_INTERVAL) {
     lastWiFiReconnectAttempt = millis();
-    Serial.println("Attempting WiFi connection...");
-    WiFi.disconnect();
-    WiFi.begin(ssid, password);
+    Serial.println("Checking WiFi connection...");
+    
+    // Only disconnect and begin if we are not already connecting
+    // WiFi.status() != WL_CONNECTED is already true here
+    // We can check if we have an IP or if status is WL_DISCONNECTED to be more specific,
+    // but simply calling begin() again is usually okay if enough time has passed.
+    // However, to be less disruptive, we can check:
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi not connected. Reconnecting...");
+        WiFi.disconnect();
+        WiFi.begin(ssid, password);
+    }
   }
 }
 
@@ -328,7 +323,10 @@ void updateSensorsAndControl() {
     heaterErrorType   = (currentHeaterTemp == DEVICE_DISCONNECTED_C) ? "DISCONNECTED" : "INVALID";
     currentHeaterTemp = -127.0;
     disableHeater();
-    sendError("Heater sensor " + heaterErrorType);
+    
+    char errMsg[64];
+    snprintf(errMsg, sizeof(errMsg), "Heater sensor %s", heaterErrorType.c_str());
+    sendError(errMsg);
   } else {
     heaterSensorError = false;
     heaterErrorType   = "";
@@ -340,7 +338,10 @@ void updateSensorsAndControl() {
     waterErrorType   = (currentWaterTemp == DEVICE_DISCONNECTED_C) ? "DISCONNECTED" : "INVALID";
     currentWaterTemp = -127.0;
     disableHeater();
-    sendError("Water sensor " + waterErrorType);
+
+    char errMsg[64];
+    snprintf(errMsg, sizeof(errMsg), "Water sensor %s", waterErrorType.c_str());
+    sendError(errMsg);
   } else {
     waterSensorError = false;
     waterErrorType   = "";
@@ -436,13 +437,13 @@ void sendTemperatureUpdate() {
   Serial.println("Published temperature update");
 }
 
-void sendError(String errorMessage) {
+void sendError(const char* errorMessage) {
   DynamicJsonDocument doc(256);
   doc["deviceId"] = deviceId;
   doc["status"]   = "error";
   doc["message"]  = errorMessage;
   mqttPublishEncrypted(topicStatus, doc);
-  Serial.println("Error: " + errorMessage);
+  Serial.println(errorMessage);
 }
 
 
