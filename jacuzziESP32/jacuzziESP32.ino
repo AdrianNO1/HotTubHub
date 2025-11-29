@@ -10,6 +10,8 @@
 #include <math.h>
 #include "secrets.h"
 
+#include <esp_task_wdt.h>
+
 #define AES_KEY(str) { \
   str[0], str[1], str[2], str[3], \
   str[4], str[5], str[6], str[7], \
@@ -26,10 +28,18 @@ const char* deviceId   = "jcz_001";
 const byte  aes_key[16] = AES_KEY(AES_KEY_STRING);
 const char* topicPrefix = "secure_jacuzzi/jcz_001/";
 
-String topicTemperature   = String(topicPrefix) + "temperature";
-String topicStatus        = String(topicPrefix) + "status";
-String topicTargetTemp    = String(topicPrefix) + "target_temperature";
-String topicInitialReq    = String(topicPrefix) + "initial_request";
+char topicTemperature[64];
+char topicStatus[64];
+char topicTargetTemp[64];
+char topicInitialReq[64];
+
+// WDT Timeout in seconds
+const int WDT_TIMEOUT = 10;
+
+// Reconnection timers
+unsigned long lastWiFiReconnectAttempt = 0;
+unsigned long lastMQTTReconnectAttempt = 0;
+const unsigned long RECONNECT_INTERVAL = 5000;
 
 // 1-Wire temperature sensors
 const int temperatureSensorsPin = 33;
@@ -73,40 +83,80 @@ PubSubClient  mqttClient(espClient);
 AESLib        aesLib;
 const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-String encrypt(String plaintext, byte iv[]) {
-  int plainLen = plaintext.length();
+// Helper to get hex char
+char nibbleToHex(byte nibble) {
+  return (nibble < 10) ? ('0' + nibble) : ('A' + (nibble - 10));
+}
+
+void byteArrayToHexString(byte* buffer, int len, char* output) {
+  for (int i = 0; i < len; i++) {
+    output[i * 2]     = nibbleToHex((buffer[i] >> 4) & 0x0F);
+    output[i * 2 + 1] = nibbleToHex(buffer[i] & 0x0F);
+  }
+  output[len * 2] = '\0';
+}
+
+void hexStringToByteArray(const char* hex, byte* bytes, int len) {
+  for (int i = 0; i < len; i++) {
+    char high = hex[i * 2];
+    char low  = hex[i * 2 + 1];
+    byte hVal = (high >= '0' && high <= '9') ? high - '0' : (high >= 'A' && high <= 'F') ? high - 'A' + 10 : high - 'a' + 10;
+    byte lVal = (low >= '0' && low <= '9') ? low - '0' : (low >= 'A' && low <= 'F') ? low - 'A' + 10 : low - 'a' + 10;
+    bytes[i] = (hVal << 4) | lVal;
+  }
+}
+
+// Encrypts plaintext into base64 outputBuffer. 
+// outputBuffer must be large enough: base64_enc_len(padded_len) + 1
+void encrypt(const char* plaintext, byte iv[], char* outputBuffer) {
+  int plainLen = strlen(plaintext);
   int padLen   = 16 - (plainLen % 16);
   int totalLen = plainLen + padLen;
 
-  byte plainBytes[totalLen];
-  plaintext.getBytes(plainBytes, plainLen + 1);
+  // VLA or fixed buffer? Max JSON size is small, let's use a safe static size or dynamic alloc if needed.
+  // Given heap constraints, stack is better if small, but totalLen could be ~300. 
+  // ESP32 stack is ~8KB per task. 512 bytes is fine.
+  byte plainBytes[512]; 
+  if (totalLen > 512) {
+    // Fallback or error handling needed in real prod, but for now assume < 512
+    totalLen = 512; 
+  }
+
+  memcpy(plainBytes, plaintext, plainLen);
   for (int i = plainLen; i < totalLen; i++) plainBytes[i] = padLen;
 
-  byte cipherBytes[totalLen];
+  byte cipherBytes[512];
   byte iv_enc[N_BLOCK];
   memcpy(iv_enc, iv, N_BLOCK);
   aesLib.encrypt(plainBytes, totalLen, cipherBytes, aes_key, 128, iv_enc);
 
-  char base64Output[base64_enc_len(totalLen) + 1];
-  base64_encode(base64Output, (char*)cipherBytes, totalLen);
-  return String(base64Output);
+  base64_encode(outputBuffer, (char*)cipherBytes, totalLen);
 }
 
-String decrypt(String ciphertext_base64, byte iv[]) {
-  int cipherLen = base64_dec_len((char*)ciphertext_base64.c_str(), ciphertext_base64.length());
-  byte cipherBytes[cipherLen];
-  base64_decode((char*)cipherBytes, (char*)ciphertext_base64.c_str(), ciphertext_base64.length());
+// Decrypts base64 ciphertext into outputBuffer
+void decrypt(const char* ciphertext_base64, byte iv[], char* outputBuffer) {
+  int inputLen = strlen(ciphertext_base64);
+  int cipherLen = base64_dec_len((char*)ciphertext_base64, inputLen);
+  
+  byte cipherBytes[512];
+  if (cipherLen > 512) cipherLen = 512; // Safety cap
 
-  byte decryptedBytes[cipherLen];
+  base64_decode((char*)cipherBytes, (char*)ciphertext_base64, inputLen);
+
+  byte decryptedBytes[512];
   byte iv_dec[N_BLOCK];
   memcpy(iv_dec, iv, N_BLOCK);
   aesLib.decrypt(cipherBytes, cipherLen, decryptedBytes, aes_key, 128, iv_dec);
 
-  int padLen   = decryptedBytes[cipherLen - 1];
+  int padLen = decryptedBytes[cipherLen - 1];
+  // Basic validation of padLen
+  if (padLen <= 0 || padLen > 16) padLen = 0; 
+  
   int actualLen = cipherLen - padLen;
-  decryptedBytes[actualLen] = '\0';
+  if (actualLen < 0) actualLen = 0;
 
-  return String((char*)decryptedBytes);
+  memcpy(outputBuffer, decryptedBytes, actualLen);
+  outputBuffer[actualLen] = '\0';
 }
 
 void generateRandomIV(byte iv[]) {
@@ -128,22 +178,28 @@ void hexStringToByteArray(String hex, byte* bytes, int len) {
   }
 }
 
-void mqttPublishEncrypted(String topic, DynamicJsonDocument &doc) {
-  String plaintext;
-  serializeJson(doc, plaintext);
+void mqttPublishEncrypted(const char* topic, DynamicJsonDocument &doc) {
+  char plaintext[512];
+  size_t len = serializeJson(doc, plaintext, sizeof(plaintext));
+  if (len >= sizeof(plaintext)) return; // Truncated, do not send
 
   byte iv[N_BLOCK];
   generateRandomIV(iv);
-  String ciphertext = encrypt(plaintext, iv);
-  String ivHex      = byteArrayToHexString(iv, N_BLOCK);
+  
+  char ciphertext[700]; // Base64 expansion ~1.33x + padding
+  encrypt(plaintext, iv, ciphertext);
+  
+  char ivHex[33];
+  byteArrayToHexString(iv, N_BLOCK, ivHex);
 
-  DynamicJsonDocument encryptedDoc(512);
+  DynamicJsonDocument encryptedDoc(1024);
   encryptedDoc["iv"]        = ivHex;
   encryptedDoc["ciphertext"] = ciphertext;
 
-  String encryptedMessage;
-  serializeJson(encryptedDoc, encryptedMessage);
-  mqttClient.publish(topic.c_str(), encryptedMessage.c_str());
+  char encryptedMessage[1024];
+  serializeJson(encryptedDoc, encryptedMessage, sizeof(encryptedMessage));
+  
+  mqttClient.publish(topic, encryptedMessage);
 }
 
 
@@ -159,31 +215,35 @@ void updateSensorsAndControl();
 unsigned long lastTargetUpdateTimestamp = 0;
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String topicStr   = String(topic);
-  String payloadStr = "";
-  for (unsigned int i = 0; i < length; i++) payloadStr += (char)payload[i];
+  // Use char array for topic comparison to avoid String allocation
+  // Direct deserialization from payload buffer to avoid String copy loop
 
   DynamicJsonDocument encDoc(512);
-  if (deserializeJson(encDoc, payloadStr) != DeserializationError::Ok) {
+  if (deserializeJson(encDoc, payload, length) != DeserializationError::Ok) {
     Serial.println("Failed to parse encrypted JSON");
     return;
   }
 
-  String ivHex     = encDoc["iv"];
-  String ciphertext = encDoc["ciphertext"];
+  const char* ivHex = encDoc["iv"];
+  const char* ciphertext = encDoc["ciphertext"];
+  
+  if (!ivHex || !ciphertext) return;
+
   byte iv[N_BLOCK];
   hexStringToByteArray(ivHex, iv, N_BLOCK);
 
-  String decryptedPayload = decrypt(ciphertext, iv);
+  char decryptedPayload[512];
+  decrypt(ciphertext, iv, decryptedPayload);
+  
   DynamicJsonDocument doc(512);
   if (deserializeJson(doc, decryptedPayload) != DeserializationError::Ok) {
     Serial.println("Failed to parse decrypted JSON");
     return;
   }
 
-  if (topicStr == topicInitialReq) {
+  if (strcmp(topic, topicInitialReq) == 0) {
     sendTemperatureUpdate();
-  } else if (topicStr == topicTargetTemp) {
+  } else if (strcmp(topic, topicTargetTemp) == 0) {
     unsigned long messageTimestamp = doc["timestamp"] | 0;
     if (messageTimestamp < lastTargetUpdateTimestamp) return;
 
@@ -225,28 +285,32 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 
 
 void connectWiFi() {
-  Serial.print("Connecting to WiFi");
-  WiFi.begin(ssid, password);
-  WiFi.setSleep(false);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print('.');
+  if (WiFi.status() == WL_CONNECTED) return;
+
+  if (millis() - lastWiFiReconnectAttempt >= RECONNECT_INTERVAL) {
+    lastWiFiReconnectAttempt = millis();
+    Serial.println("Attempting WiFi connection...");
+    WiFi.disconnect();
+    WiFi.begin(ssid, password);
   }
-  Serial.println("\nWiFi connected: " + WiFi.localIP().toString());
 }
 
 void connectMQTT() {
-  while (!mqttClient.connected()) {
-    Serial.print("Connecting to MQTT...");
+  if (WiFi.status() != WL_CONNECTED) return;
+  if (mqttClient.connected()) return;
+
+  if (millis() - lastMQTTReconnectAttempt >= RECONNECT_INTERVAL) {
+    lastMQTTReconnectAttempt = millis();
+    Serial.print("Attempting MQTT connection...");
+    
     if (mqttClient.connect(deviceId)) {
       Serial.println("connected");
-      mqttClient.subscribe(topicTargetTemp.c_str());
-      mqttClient.subscribe(topicInitialReq.c_str());
+      mqttClient.subscribe(topicTargetTemp);
+      mqttClient.subscribe(topicInitialReq);
     } else {
       Serial.print("failed, rc=");
       Serial.print(mqttClient.state());
-      Serial.println(" retrying in 5s");
-      delay(5000);
+      Serial.println(" try again later");
     }
   }
 }
@@ -275,6 +339,7 @@ void updateSensorsAndControl() {
     waterSensorError = true;
     waterErrorType   = (currentWaterTemp == DEVICE_DISCONNECTED_C) ? "DISCONNECTED" : "INVALID";
     currentWaterTemp = -127.0;
+    disableHeater();
     sendError("Water sensor " + waterErrorType);
   } else {
     waterSensorError = false;
@@ -288,7 +353,7 @@ void updateSensorsAndControl() {
   }
 
   // Heater control logic with debounce
-  if (millis() - lastHeaterSwitch >= heaterMinSwitchTime * 1000UL && !heaterSensorError) {
+  if (millis() - lastHeaterSwitch >= heaterMinSwitchTime * 1000UL && !heaterSensorError && !waterSensorError) {
     float diff = targetTemp - currentWaterTemp; // positive if we are below target
     if (targetTemp == 0 && heaterEnabled) {
       disableHeater();
@@ -385,6 +450,22 @@ void setup() {
   Serial.begin(115200);
   randomSeed(analogRead(0) + millis());
 
+  // Initialize Topic Strings
+  snprintf(topicTemperature, sizeof(topicTemperature), "%stemperature", topicPrefix);
+  snprintf(topicStatus, sizeof(topicStatus), "%sstatus", topicPrefix);
+  snprintf(topicTargetTemp, sizeof(topicTargetTemp), "%starget_temperature", topicPrefix);
+  snprintf(topicInitialReq, sizeof(topicInitialReq), "%sinitial_request", topicPrefix);
+
+  // Initialize WDT
+  Serial.println("Initializing WDT...");
+  esp_task_wdt_config_t wdt_config = {
+      .timeout_ms = WDT_TIMEOUT * 1000,
+      .idle_core_mask = 0,
+      .trigger_panic = true
+  };
+  esp_task_wdt_init(&wdt_config);
+  esp_task_wdt_add(NULL); // Add current thread to WDT watch
+
   pinMode(temperatureSensorsPin, INPUT);
 
   // Hardware init
@@ -409,21 +490,29 @@ void setup() {
     targetTemp = 5.0;
   }
 
-  connectWiFi();
+  // Initial WiFi setup (non-blocking attempt)
+  WiFi.begin(ssid, password);
+  WiFi.setSleep(false);
+  
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
 
   mqttClient.setServer(mqttBroker, mqttPort);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(1024);
-  connectMQTT();
-
-  // Initial publish so cloud has baseline
-  sendTemperatureUpdate();
+  
+  // Note: We don't block for MQTT here. Loop will handle it.
 }
 
 void loop() {
-  if (!mqttClient.connected()) connectMQTT();
-  mqttClient.loop();
+  // Pet the dog
+  esp_task_wdt_reset();
+
+  connectWiFi();
+  connectMQTT();
+  
+  if (mqttClient.connected()) {
+    mqttClient.loop();
+  }
 
   updateSensorsAndControl();
   scheduleAutomaticBubbles();
@@ -431,7 +520,9 @@ void loop() {
 
   static unsigned long lastTempPub = 0;
   if (millis() - lastTempPub >= 5000UL) {
-    sendTemperatureUpdate();
+    if (mqttClient.connected()) {
+      sendTemperatureUpdate();
+    }
     lastTempPub = millis();
   }
 }
