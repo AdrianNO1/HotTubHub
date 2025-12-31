@@ -9,7 +9,6 @@
 #include <time.h>
 #include <math.h>
 #include "secrets.h"
-
 #include <esp_task_wdt.h>
 
 #define AES_KEY(str) { \
@@ -47,17 +46,23 @@ OneWire oneWire(temperatureSensorsPin);
 DallasTemperature sensors(&oneWire);
 
 // DS18B20 sensor addresses
-DeviceAddress heaterSensor = {0x28, 0x31, 0x93, 0x56, 0x00, 0x00, 0x00, 0xEC}; // Sensor in heater
-DeviceAddress waterSensor  = {0x28, 0xFD, 0x77, 0x58, 0x00, 0x00, 0x00, 0xDE}; // Sensor in water
+DeviceAddress heaterSensor = {0x28, 0x5A, 0x2E, 0x57, 0x00, 0x00, 0x00, 0xFB};
+DeviceAddress waterSensor  = {0x28, 0x31, 0x93, 0x56, 0x00, 0x00, 0x00, 0xEC};
+
+// DeviceAddress heaterSensor = {0x28, 0x5A, 0x2E, 0x57, 0x00, 0x00, 0x00, 0xFB};
+// DeviceAddress waterSensor  = {0x28, 0x17, 0x9D, 0x57, 0x00, 0x00, 0x00, 0xC5};
 
 // LOW -> ON, HIGH -> OFF
-const int HEATER_CONTROL_PIN  = 27;
-const int BUBBLES_CONTROL_PIN = 26;
+const int HEATER_CONTROL_PIN  = 19;
+const int BUBBLES_CONTROL_PIN = 18;
+const int LIGHT_CONTROL_PIN_1 = 16;
+const int LIGHT_CONTROL_PIN_2 = 17;
 
 const float SAFETY_MAX_TEMP = 55.0;
 const float MIN_TEMP        = 0.0;
 const float MAX_TEMP        = 50.0;
 
+const int LIGHT_OFFSET_MINUTES = 5;
 
 const unsigned long heaterMinSwitchTime = 30UL;
 unsigned long lastHeaterSwitch = 0;
@@ -82,6 +87,162 @@ WiFiClient    espClient;
 PubSubClient  mqttClient(espClient);
 AESLib        aesLib;
 const char base64_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+int minutesOfDayLocal() {
+  time_t now = time(nullptr);
+  struct tm lt;
+  localtime_r(&now, &lt);
+  return lt.tm_hour * 60 + lt.tm_min; // 0..1439
+}
+
+static double deg2rad(double d) { return d * M_PI / 180.0; }
+static double rad2deg(double r) { return r * 180.0 / M_PI; }
+
+static double normalize360(double x) {
+  x = fmod(x, 360.0);
+  if (x < 0) x += 360.0;
+  return x;
+}
+
+static double normalize24(double x) {
+  x = fmod(x, 24.0);
+  if (x < 0) x += 24.0;
+  return x;
+}
+
+// dayOfYear: 1..366
+static int dayOfYearFromTm(const struct tm& lt) {
+  return lt.tm_yday + 1;
+}
+
+// Computes local time (hours 0..24) of sunrise/sunset for given date & position.
+// zenithDeg: 90.833 = "official" sunrise/sunset (includes refraction).
+// Returns false if sun never rises/sets that day (polar day/night).
+static bool calcSunTimeLocalHours(
+    int year, int month, int day, int dayOfYear,
+    double latitudeDeg, double longitudeDeg,
+    bool isSunrise,
+    double zenithDeg,
+    double &outLocalHours)
+{
+  (void)year; (void)month; (void)day; // not needed by this variant; kept for clarity
+
+  // Longitude hour value
+  double lngHour = longitudeDeg / 15.0;
+
+  // Approx time
+  double t = dayOfYear + ((isSunrise ? 6.0 : 18.0) - lngHour) / 24.0;
+
+  // Sun's mean anomaly
+  double M = 0.9856 * t - 3.289;
+
+  // Sun's true longitude
+  double L = M + 1.916 * sin(deg2rad(M)) + 0.020 * sin(deg2rad(2 * M)) + 282.634;
+  L = normalize360(L);
+
+  // Sun's right ascension
+  double RA = rad2deg(atan(0.91764 * tan(deg2rad(L))));
+  RA = normalize360(RA);
+
+  // Put RA in same quadrant as L
+  double Lquadrant  = floor(L / 90.0) * 90.0;
+  double RAquadrant = floor(RA / 90.0) * 90.0;
+  RA = RA + (Lquadrant - RAquadrant);
+
+  // Convert RA to hours
+  RA /= 15.0;
+
+  // Sun's declination
+  double sinDec = 0.39782 * sin(deg2rad(L));
+  double cosDec = cos(asin(sinDec));
+
+  // Sun local hour angle
+  double cosH =
+      (cos(deg2rad(zenithDeg)) - (sinDec * sin(deg2rad(latitudeDeg)))) /
+      (cosDec * cos(deg2rad(latitudeDeg)));
+
+  if (cosH > 1.0 || cosH < -1.0) {
+    return false; // no sunrise or no sunset on this date at this latitude
+  }
+
+  double H = isSunrise ? (360.0 - rad2deg(acos(cosH))) : rad2deg(acos(cosH));
+  H /= 15.0;
+
+  // Local mean time
+  double T = H + RA - 0.06571 * t - 6.622;
+
+  // UTC
+  double UT = T - lngHour;
+  UT = normalize24(UT);
+
+  // Convert UTC -> local using current TZ/DST rules
+  // We need to establish the exact epoch timestamp for the calculated UTC time.
+  // UT is hours past UTC midnight.
+  // So we calculate timestamp of UTC midnight for that day, add UT offsets,
+  // then convert to local time structure.
+
+  struct tm utcMid = {};
+  utcMid.tm_year = year - 1900;
+  utcMid.tm_mon  = month - 1;
+  utcMid.tm_mday = day;
+  utcMid.tm_hour = 0;
+  utcMid.tm_min  = 0;
+  utcMid.tm_sec  = 0;
+
+  // Temporarily switch to UTC to get strict UTC epoch via mktime
+  // (mktime interprets struct as local time defined by TZ)
+  String oldTz = "";
+  if (getenv("TZ")) oldTz = getenv("TZ");
+  setenv("TZ", "UTC0", 1);
+  tzset();
+
+  time_t utcMidEpoch = mktime(&utcMid);
+
+  // Restore TZ
+  if (oldTz.length() > 0) setenv("TZ", oldTz.c_str(), 1);
+  else unsetenv("TZ");
+  tzset();
+
+  time_t eventEpoch = utcMidEpoch + (time_t)lround(UT * 3600.0);
+
+  struct tm eventLocal;
+  localtime_r(&eventEpoch, &eventLocal);
+
+  outLocalHours = eventLocal.tm_hour + eventLocal.tm_min / 60.0 + eventLocal.tm_sec / 3600.0;
+  return true;
+}
+
+// Convenience: compute minutes since local midnight for today
+bool sunriseSunsetMinutesToday(double lat, double lon, int &sunriseMin, int &sunsetMin) {
+  time_t now = time(nullptr);
+  struct tm lt;
+  localtime_r(&now, &lt);
+
+  int year  = lt.tm_year + 1900;
+  int month = lt.tm_mon + 1;
+  int day   = lt.tm_mday;
+  int doy   = dayOfYearFromTm(lt);
+
+  double srH, ssH;
+  const double ZENITH = 90.833; // official
+
+  if (!calcSunTimeLocalHours(year, month, day, doy, lat, lon, true,  ZENITH, srH)) return false;
+  if (!calcSunTimeLocalHours(year, month, day, doy, lat, lon, false, ZENITH, ssH)) return false;
+
+  sunriseMin = (int)lround(srH * 60.0);
+  sunsetMin  = (int)lround(ssH * 60.0);
+  return true;
+}
+
+bool isDaylightNow() {
+  int sr, ss;
+  if (!sunriseSunsetMinutesToday(LATITUDE, LONGITUDE, sr, ss)) {
+    // polar day/night handling (choose what makes sense for you)
+    return false;
+  }
+  int nowMin = minutesOfDayLocal();
+  return (nowMin >= (sr + LIGHT_OFFSET_MINUTES) && nowMin < (ss - LIGHT_OFFSET_MINUTES));
+}
 
 // Helper to get hex char
 char nibbleToHex(byte nibble) {
@@ -474,6 +635,8 @@ void setup() {
   digitalWrite(HEATER_CONTROL_PIN, HIGH); // off
   pinMode(BUBBLES_CONTROL_PIN, OUTPUT);
   digitalWrite(BUBBLES_CONTROL_PIN, HIGH); // off
+  pinMode(LIGHT_CONTROL_PIN_1, OUTPUT);
+  pinMode(LIGHT_CONTROL_PIN_2, OUTPUT);
 
   sensors.begin();
   sensors.setResolution(heaterSensor, 12);
@@ -496,12 +659,12 @@ void setup() {
   WiFi.setSleep(false);
   
   configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+  setenv("TZ", TIMEZONE_STR, 1);
+  tzset();
 
   mqttClient.setServer(mqttBroker, mqttPort);
   mqttClient.setCallback(mqttCallback);
   mqttClient.setBufferSize(1024);
-  
-  // Note: We don't block for MQTT here. Loop will handle it.
 }
 
 void loop() {
@@ -516,11 +679,18 @@ void loop() {
   }
 
   updateSensorsAndControl();
-  scheduleAutomaticBubbles();
   checkBubbleTimer();
-
+  
   static unsigned long lastTempPub = 0;
   if (millis() - lastTempPub >= 5000UL) {
+    scheduleAutomaticBubbles();
+    if (isDaylightNow()) {
+      digitalWrite(LIGHT_CONTROL_PIN_1, HIGH);
+      digitalWrite(LIGHT_CONTROL_PIN_2, LOW);
+    } else {
+      digitalWrite(LIGHT_CONTROL_PIN_1, LOW);
+      digitalWrite(LIGHT_CONTROL_PIN_2, HIGH);
+    }
     if (mqttClient.connected()) {
       sendTemperatureUpdate();
     }
