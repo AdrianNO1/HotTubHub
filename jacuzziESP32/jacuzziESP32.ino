@@ -568,9 +568,11 @@ void scheduleAutomaticBubbles() {
   int times[3] = {2, 10, 18};
   for (int i = 0; i < 3; i++) {
     if (hour == times[i] && minute == 0 && !scheduledBubblesRun[i]) {
-      enableBubbles();
-      bubbleStartMillis   = millis();
-      bubbleScheduled     = true;
+      if (!bubblesEnabled) {
+        enableBubbles();
+        bubbleStartMillis = millis();
+        bubbleScheduled = true;
+      }
       scheduledBubblesRun[i] = true;
     } else if (hour != times[i] || minute != 0) {
       scheduledBubblesRun[i] = false;

@@ -630,12 +630,12 @@
 
     async function encryptMessage(message) {
         if (!CONFIG.secretKey) {
-            throw new Error('Secret key not set');
             showError('Secret key not set');
+            throw new Error('Secret key not set');
         }
         if (CONFIG.secretKey.length !== 16) {
-            throw new Error('Secret key must be 16 characters');
             showError('Secret key must be 16 characters');
+            throw new Error('Secret key must be 16 characters');
         }
         const jsonString = JSON.stringify(message);
 
